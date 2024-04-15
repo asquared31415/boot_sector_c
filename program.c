@@ -1,5 +1,5 @@
 int x ;
-int z ;
+int* z ;
 
 int y ()
 {
@@ -7,6 +7,7 @@ int y ()
 
 int main ()
 {
-    x = z ;
+    z = 64 ;
+    x = * z ;
     y ();
 }

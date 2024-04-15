@@ -142,7 +142,6 @@ _assign_expr:
 _fn_call:
     mov dx, 0x17FF ; call [bx] (note: little endian)
 
-    ; db "MEOW"
     .shared: ; this code is shared with the assignment code, with the `call` replaced with a `mov`
     push dx
     mov bx, cx           ; | get the entry for the memory allocated for the ident
@@ -199,16 +198,42 @@ _unary:
         stosw
         ret
 
-    ._star:
-    ._addr_of:
-    ret
-
     ._num:
         push ax
-        mov al, 0xB8 ; mov ax, ...
+        mov al, 0xB8 ; mov ax, imm16
         stosb
-        pop ax
-        stosw ; the constant
+        pop ax ; the constant
+        stosw
+        ret
+
+    ; get next ident and then use its addr
+    ._star:
+        call next_token
+        call _get_token_addr
+
+        ; mov bx, <ADDR>
+        ; mov bx, word [bx]
+        ; mov ax, word [bx]
+        mov al, 0xBB ; mov bx, imm16
+        stosb
+        mov ax, word gs:[bx] ; addr of the variable
+        stosw
+        mov ax, 0x1F8B ; mov bx, word [bx] (note: little endian)
+        stosw
+        mov ax, 0x078B ; mov ax, word [bx] (note: little endian)
+        stosw
+        ret
+
+    ; get next ident and then use its addr
+    ._addr_of:
+        call next_token
+        call _get_token_addr
+        mov cx, word gs:[bx]
+
+        mov al, 0xB8 ; mov ax, imm16
+        stosb
+        mov ax, cx ; addr of the variable
+        stosw
         ret
 
 ; token in bx
