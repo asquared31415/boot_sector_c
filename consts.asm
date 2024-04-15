@@ -1,0 +1,31 @@
+%ifndef CONSTS
+    %define CONSTS
+
+    ; SP starts here, and grows downwards towards 0x0000
+    STACK_TOP: equ 0x7C00
+
+    COM1_PORT: equ 0x03F8 ; COM1 port
+
+    VAR_SIZE: equ 2
+
+    PROGRAM_MEM_START: equ 0x8000
+
+    ; TOKENS
+    TokenKind:
+        .INT:         equ 0x18F4 ; int
+        .INT_PTR:     equ 0xF982 ; int*
+
+        .OPEN_PAREN:  equ 0xFFF8 ; (
+        .CLOSE_PAREN: equ 0xFFF9 ; )
+        .CLOSE_BRACE: equ 0x004D ; }
+        .FN_ARGS:     equ 0xFFA9 ; ()
+        .FN_CALL:     equ 0xFCA5 ; ();
+
+        .IF_START:    equ 0x1858 ; if(
+        .WHILE_START: equ 0xDA02 ; while(
+
+        .STAR:        equ 0xFFFA ; *
+        .AND:         equ 0xFFF6 ; &
+
+
+%endif

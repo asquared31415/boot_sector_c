@@ -1,0 +1,9 @@
+.vscode/
+
+# binary artifacts
+out/
+qemu_img
+
+# logs
+qemu.log
+nohup.out
