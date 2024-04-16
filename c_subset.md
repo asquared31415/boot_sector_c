@@ -11,12 +11,11 @@ Programs are laid out in the following form:
 <statement>      = <assign-expr>" ;"
                  | <ident> " ();" ; <- function call
                  | "if(" <expr> "){" (<statement>)* "}"
-                 | "while(" <expr> "){" (<statement>)* "}"
+                 | "while(" <expr> "){" (<statement>)* "}" ; TODO
 <assign-expr>    = <ident> " = " <expr>
 <expr>           = <unary> (<binop> <unary>)?
 <unary>          = "* " <ident>
                  | "& " <ident>
-                 | "( " <expr> " )"
                  | <ident>
                  | <integer>
 <binop>          = "+" | "-" | "&" | "|" | "^" | "<<" | ">>" | "==" | "!=" | "<" | "<="

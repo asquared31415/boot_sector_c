@@ -177,7 +177,6 @@ _fn_call:
 _expr:
     call _unary
 
-    ; db "MEOW"
     call next_token
     mov bx, ._arith_binop_codes
     mov cx, 7
@@ -208,39 +207,30 @@ _expr:
     ; and easy to turn into an index
     pop ax
     movzx bx, al
-    and bl, 0b0000_1110
-    shr bx, 1
+    sub bl, 2
+    and bl, 0b0000_1100
+    shr bx, 2
     mov al, byte [bx + ._setcc_byte]
 
     mov ah, 0xC0 ; the last byte of the SETcc
     stosw
-    call next_token ; eat the ; after a binop
-    ._no_binop:
-    ret
+    jmp next_token ; eat the ; after a binop (tail call)
 
-    ; indexed by the top 3 bits of the last nibble of the ident
+    ; indexed by some bits in the last nibble of the ident
     ; yes this is cursed
     ._setcc_byte:
-        db 0x00
-        db 0x00
         db 0x9E ; setle
         db 0x95 ; setne
-        db 0x00
-        db 0x00
         db 0x9C ; setl
         db 0x94 ; sete
 
 
     ._binop_eq:
         call ._binop_shared
-
-        inc bx ; |
-        inc bx ; | advance to the bytes to emit
-        mov ax, word [bx]
+        mov ax, word [bx + 2]
         stosw
 
-        call next_token ; eat the ; after a binop
-        ret
+        jmp  next_token ; eat the ; after a binop (tail call)
 
     ._arith_binop_codes:
         dw TokenKind.PLUS 
@@ -271,6 +261,7 @@ _expr:
         pop bx
         pop ax ; xchg cx, ax
         stosb
+    ._no_binop:
         ret
 
 _unary:
