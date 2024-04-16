@@ -33,15 +33,25 @@ main:
     mov al, 0b0000_0111 ; Enable FIFO and clear the FIFO buffers
     out dx, al
 
-    mov di, PROGRAM_BUFFER
-    mov si, di ; point to start reading from in the compiler
-    call load_program
+    mov si, PROGRAM_BUFFER ; point to start reading from in the compiler
+    mov di, si
+
+    ._load_program:
+        mov dx, COM1_PORT + 5
+        in al, dx
+        and al, 0x01
+        jz ._load_program
+        mov dx, COM1_PORT
+        in al, dx
+        stosb
+        or al, al
+        jne ._load_program
+
     ; di contains the current index to write to
     mov di, PROGRAM_MEM_START
 
     call compiler_entry
-    call 0x8002
-
+    ; call 0x8002
     jmp $
 
 compiler_entry:
@@ -57,12 +67,9 @@ compiler_entry:
         ; set up an entry for memory for this declaration
         mov word gs:[bx], di
 
-        push ax ; save the ident for the next step
-
         ; to distinguish a function and a variable declaration, look for a `()` following it.
         ; functions MUST have those characters while variables MUST have a `;`
         call next_token
-        pop cx                    ; get the ident name for handling
         cmp ax, TokenKind.FN_ARGS
         jne .var
 
@@ -72,7 +79,8 @@ compiler_entry:
         .var:
         ; just need to create space in the program memory for this variable
         ; there's already an entry in the ident table, so just increment the next memory idx
-        add di, VAR_SIZE
+        inc di ; skip 2 bytes per variable
+        inc di ;
         jmp .loop
 
 _fn_decl:
@@ -83,40 +91,58 @@ _fn_decl:
     stosb
     ret
 
-; db "MEOW"
 _block:
     .stmt_loop:
         call next_token
+        push .stmt_loop
         cmp ax, TokenKind.CLOSE_BRACE
         je .end
         cmp ax, TokenKind.IF_START
-        je _if_state
+        jne ._next0
+        jmp _if_state
+        ._next0:
+        cmp ax, TokenKind.WHILE_START
+        jne .next1
+        jmp _while
+        .next1:
         cmp ax, TokenKind.ASM_START
-        je _asm
-        push gs ; | later things will want to use the memory for this token
-        push bx ; |
-        ; if the statement is not an if or a while, it's either an assignment or a function call
+        jne .next2
+        jmp _asm
+        .next2:
+        mov cx, word gs:[bx]
+        ; if the statement is not an if, while, or asm, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
         call next_token
-        pop bx
-        pop gs
         cmp ax, TokenKind.FN_CALL
-        push .stmt_loop  ; | these return into the top of the loop
-        je _fn_call      ; |
-        jmp _assign_expr ; |
+        jne _assign_expr ; will return to top of loop
+        mov dx, 0x17FF ; call [bx] (note: little endian)
+        jmp _mov_bx_action ; tail call (returns to top of loop)
 
     .end:
+    pop ax
     ret
 
-; gs:bx set up for the ident to assign to
+; cx holds the address of the ident to assign to
 _assign_expr:
-    push word gs:[bx] ; the address of the ident being called/written tos
+    push cx
     call _expr ; NOTE: this will eat the ; if it exists
     pop cx
 
     ; codegen the store
     mov dx, 0x0789 ; mov [bx], ax (note: little endian)
     jmp _mov_bx_action ; tail call
+
+_while:
+    push di ; store the current position to loop to
+    call _if_state ; generate the condition and block
+    pop bx
+    sub dx, di
+    sub dx, 3 ; size of the JMP rel16off
+    mov al, 0xE9
+    stosb
+    mov ax, dx
+    stosw
+    ret
 
 _if_state:
     call _expr ; parse an expr for the condition
@@ -139,7 +165,7 @@ _if_state:
     dec ax     ; |
 
     mov word [bx], ax
-    jmp _block.stmt_loop
+    ret
 
 ; emits a sequence
 ; mov bx, <CONST>
@@ -156,7 +182,6 @@ _mov_bx_action:
     stosw
     ret
 
-
 _asm:
     ._loop:
         call next_token ; eat the .byte or find end
@@ -168,12 +193,7 @@ _asm:
         jmp ._loop
 
     .end:
-    jmp _block.stmt_loop
-
-_fn_call:
-    mov cx, word gs:[bx] ; | cx holds the address of the ident being called/written to
-    mov dx, 0x17FF ; call [bx] (note: little endian)
-    jmp _mov_bx_action ; tail call
+    ret
 
 ; emits an expression
 ; expressions return their value in ax
@@ -376,19 +396,6 @@ next_token:
 ;     pop ax
 ;     out dx, al
 ;     ret
-
-load_program:
-    ._loop:
-        mov dx, COM1_PORT + 5
-        in al, dx
-        and al, 0x01
-        jz ._loop
-        mov dx, COM1_PORT
-        in al, dx
-        stosb
-        or al, al
-        jne ._loop
-    ret
 
 TIMES 0x1BE-($-$$) db 0x00
 

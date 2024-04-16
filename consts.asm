@@ -6,8 +6,6 @@
 
     COM1_PORT: equ 0x03F8 ; COM1 port
 
-    VAR_SIZE: equ 2
-
     ; the location where the boot sector loads the program into
     PROGRAM_BUFFER: equ 0x6000
 
