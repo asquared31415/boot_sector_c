@@ -1,8 +1,10 @@
 0x0_0000-0x0_04FF: BIOS (DO NOT USE)
-0x0_0500-0x0_79FF: usable RAM
+0x0_0500-0x0_5FFF: unallocated RAM
+0x0_6000-0x0_6FFF: boot sector loads program into here
+0x0_7000-0x0_79FF: unallocated RAM
 0x0_7A00-0x0_7BFF: boot sector stack
 0x0_7C00-0x0_7DFF: boot sector
 0x0_7E00-0x0_7FFF: misc boot sector RAM
 0x0_8000-0x0_BFFF: compiler program memory
-0x0_C000-0x0_FFFF: unallocated boot sector RAM
+0x0_C000-0x0_FFFF: unallocated RAM
 0x1_0000-0x1_FFFF: compiler ident->mem table

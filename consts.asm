@@ -8,6 +8,9 @@
 
     VAR_SIZE: equ 2
 
+    ; the location where the boot sector loads the program into
+    PROGRAM_BUFFER: equ 0x6000
+
     PROGRAM_MEM_START: equ 0x8000
 
     ; TOKENS

@@ -10,35 +10,37 @@ main:
     mov ss, ax
     mov sp, STACK_TOP
 
-    ; di always contains the current index to write to
-    mov di, PROGRAM_MEM_START
-
     ; TODO: probably need to zero out the ident->memory map
 
     ; Initialize serial
-    ; mov dx, COM1_PORT + 3
-    ; push dx
-    ; mov al, 0x80
-    ; out dx, al       ; Enable DLAB
+    mov dx, COM1_PORT + 3
+    push dx
+    mov al, 0x80
+    out dx, al       ; Enable DLAB
 
-    ; mov dx, COM1_PORT
-    ; mov al, 0x01 ; 115200 baud
-    ; out dx, al
+    mov dx, COM1_PORT
+    mov al, 0x01 ; 115200 baud
+    out dx, al
 
-    ; ; 0x00 baud high byte divisor
-    ; inc dx
-    ; dec ax ; ax contains the 0x01 divisor, dec to 0x00
-    ; out dx, al
+    ; 0x00 baud high byte divisor
+    inc dx
+    dec ax ; ax contains the 0x01 divisor, dec to 0x00
+    out dx, al
 
-    ; pop dx ; PORT + 3
-    ; mov al, 0x03 ; 8 bits no parity 1 stop
-    ; out dx, al
+    pop dx ; PORT + 3
+    mov al, 0x03 ; 8 bits no parity 1 stop
+    out dx, al
 
-    ; dec dx ; PORT + 2
-    ; mov al, 0b0000_0111 ; Enable FIFO and clear the FIFO buffers
-    ; out dx, al
+    dec dx ; PORT + 2
+    mov al, 0b0000_0111 ; Enable FIFO and clear the FIFO buffers
+    out dx, al
 
-    mov si, PROGRAM
+    mov di, PROGRAM_BUFFER
+    mov si, di ; point to start reading from in the compiler
+    call load_program
+    ; di contains the current index to write to
+    mov di, PROGRAM_MEM_START
+
     call compiler_entry
     call 0x8002
 
@@ -334,9 +336,18 @@ next_token:
 ;     out dx, al
 ;     ret
 
-PROGRAM: INCBIN "program.c"
-db 0
-
+load_program:
+    ._loop:
+        mov dx, COM1_PORT + 5
+        in al, dx
+        and al, 0x01
+        jz ._loop
+        mov dx, COM1_PORT
+        in al, dx
+        stosb
+        or al, al
+        jne ._loop
+    ret
 
 TIMES 0x1BE-($-$$) db 0x00
 
