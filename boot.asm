@@ -7,8 +7,6 @@ main:
     ; segments
     xor ax, ax
     mov ds, ax ; ds is used by lods/stos
-    mov ss, ax
-    mov sp, STACK_TOP
 
     ; TODO: probably need to zero out the ident->memory map
 
@@ -67,7 +65,7 @@ compiler_entry:
         pop cx                    ; get the ident name for handling
         cmp ax, TokenKind.FN_ARGS
         jne .var
-        
+
         call _fn_decl
         jmp .loop
 
@@ -78,7 +76,6 @@ compiler_entry:
         jmp .loop
 
 _fn_decl:
-    ; TODO: fn declaration
     call next_token ; skip over the " {" that should be there
     call _block
     ; emit a ret
@@ -86,20 +83,20 @@ _fn_decl:
     stosb
     ret
 
+; db "MEOW"
 _block:
     .stmt_loop:
         call next_token
-        push gs ; | later things will want to use the memory for this token
-        push bx ; |
         cmp ax, TokenKind.CLOSE_BRACE
         je .end
         cmp ax, TokenKind.IF_START
         je _if_state
-        cmp ax, TokenKind.WHILE_START
-        je _while_state
+        cmp ax, TokenKind.ASM_START
+        je _asm
+        push gs ; | later things will want to use the memory for this token
+        push bx ; |
         ; if the statement is not an if or a while, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
-        mov cx, ax
         call next_token
         pop bx
         pop gs
@@ -110,6 +107,16 @@ _block:
 
     .end:
     ret
+
+; gs:bx set up for the ident to assign to
+_assign_expr:
+    push word gs:[bx] ; the address of the ident being called/written tos
+    call _expr ; NOTE: this will eat the ; if it exists
+    pop cx
+
+    ; codegen the store
+    mov dx, 0x0789 ; mov [bx], ax (note: little endian)
+    jmp _mov_bx_action ; tail call
 
 _if_state:
     call _expr ; parse an expr for the condition
@@ -132,23 +139,7 @@ _if_state:
     dec ax     ; |
 
     mov word [bx], ax
-
-    jmp $
-
-_while_state:
-    jmp $
-
-; gs:bx set up for the ident to assign to
-_assign_expr:
-    mov cx, word gs:[bx] ; | cx holds the address of the ident being called/written to
-    push cx
-    call _expr ; NOTE: this will eat the ; if it exists
-    pop cx
-
-    ; codegen the store
-    mov dx, 0x0789 ; mov [bx], ax (note: little endian)
-    jmp _mov_bx_action ; tail call
-
+    jmp _block.stmt_loop
 
 ; emits a sequence
 ; mov bx, <CONST>
@@ -165,6 +156,19 @@ _mov_bx_action:
     stosw
     ret
 
+
+_asm:
+    ._loop:
+        call next_token ; eat the .byte or find end
+        cmp ax, TokenKind.ASM_END
+        je .end
+        call next_token ; get the value
+        stosb ; write the byte
+        call next_token ; eat the ;
+        jmp ._loop
+
+    .end:
+    jmp _block.stmt_loop
 
 _fn_call:
     mov cx, word gs:[bx] ; | cx holds the address of the ident being called/written to
@@ -233,7 +237,7 @@ _expr:
         jmp  next_token ; eat the ; after a binop (tail call)
 
     ._arith_binop_codes:
-        dw TokenKind.PLUS 
+        dw TokenKind.PLUS
             db 0x01, 0xC8 ; add ax, cx
         dw TokenKind.MINUS
             db 0x29, 0xC8 ; sub ax, cx
@@ -271,8 +275,6 @@ _unary:
     je ._star
     cmp ax, TokenKind.AND
     je ._addr_of
-
-    ; TODO: paren expr
 
     ; something is an ident if it has a non-zero entry in the ident map
     ; otherwise it's considered to be a number
@@ -337,7 +339,7 @@ next_token:
     ; as that's various whitespace and non-printing characters
     cmp al, " "
     jbe ._tokenizer_start
-    
+
     ._tokenizer_add_char:
         imul bx, bx, 10
         add bx, ax  ; | add the character in a way that ASCII numbers end up working out
@@ -347,8 +349,8 @@ next_token:
         ; at this point, if a space or lower is encountered, end
         cmp al, " "
         ja ._tokenizer_add_char
-    
-    mov ax ,bx ; store for return
+
+    mov ax, bx ; store for return
 
     ; set gs to correctly address the highest nibble of the index table
     ; this is either 0x1000 for the low half, or 0x2000 for the high half

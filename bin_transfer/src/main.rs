@@ -137,7 +137,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-const TRANSFER_DELAY: Duration = Duration::from_micros(10_000);
+const TRANSFER_DELAY: Duration = Duration::from_micros(16_000);
 
 fn do_write<T: Read + Write>(target: &mut T, bin: &[u8]) -> Result<(), std::io::Error> {
     let mut padded = [0_u8; PAD_SIZE];

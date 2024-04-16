@@ -29,6 +29,10 @@
         .IF_START:    equ 0x1858 ; if(
         .WHILE_START: equ 0xDA02 ; while(
 
+        .ASM_START:   equ 0x973E ; asm("
+        .DOT_BYTE:    equ 0x9491 ; .byte
+        .ASM_END:     equ 0xFA4D ; ");
+
         .STAR:        equ 0xFFFA ; *
         .AND:         equ 0xFFF6 ; &
 
