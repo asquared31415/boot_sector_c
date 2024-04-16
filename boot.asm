@@ -129,8 +129,7 @@ _while_state:
 ; cx holds the ident to assign to
 _assign_expr:
     push cx
-    call _expr
-    call next_token ; eat the ;
+    call _expr ; NOTE: this will eat the ; if it exists
     pop cx
 
     ; codegen the store
@@ -166,9 +165,56 @@ _fn_call:
 _expr:
     call _unary
 
-    ; TODO: check for binary
+    call next_token
+    mov bx, ._arith_binop_codes
+    mov cx, 7
+    ._binop_loop:
+        cmp ax, word [bx]
+        je ._binop_eq
+        add bx, 4
+        loop ._binop_loop
 
+    ; if it wasn't a binop, the next_token ate the token, which would be the ;
     ret
+
+    ._binop_eq:
+        ; db "MEOW"
+        ; the previous unary codegen put something in ax already, so save it
+        ; to cx, emit another unary and then swap back
+        mov al, 0x91 ; xchg cx, ax
+        stosb
+
+        push ax ; we need another xchg after this
+        push bx ; save the index into the binop codes
+        call _unary ; now the first value is in cx, and the second is in ax
+        pop bx
+
+        pop ax ; xchg cx, ax
+        stosb
+
+        inc bx ; |
+        inc bx ; | advance to the bytes to emit
+        mov ax, word [bx]
+        stosw
+
+        call next_token ; eat the ; after a binop
+        ret
+
+    ._arith_binop_codes:
+        dw TokenKind.PLUS 
+            db 0x01, 0xC8 ; add ax, cx
+        dw TokenKind.MINUS
+            db 0x29, 0xC8 ; sub ax, cx
+        dw TokenKind.AND
+            db 0x21, 0xC8 ; and ax, cx
+        dw TokenKind.OR
+            db 0x09, 0xC8 ; or  ax, cx
+        dw TokenKind.XOR
+            db 0x31, 0xC8 ; xor ax, cx
+        dw TokenKind.SHL
+            db 0xD3, 0xE0 ; shl ax, cl
+        dw TokenKind.SHR
+            db 0xD3, 0xE8 ; shr ax, cl
 
 _unary:
     call next_token
