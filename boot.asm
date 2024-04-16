@@ -3,21 +3,13 @@ org 0x7C00 ; BIOS drops us at this address
 
 %include "consts.asm"
 
-jmp 0x0000:main ; far jmp to enforce CS:IP
-
-; if this flag is set, the current type of the thing being proccessed is a `int*`
-; if it is not set, then the type is `int`
-type_ptr: equ 0x7E00 ; 1 byte
-
 main:
     ; segments
     xor ax, ax
-    mov ds, ax
+    mov ds, ax ; ds is used by lods/stos
     mov ss, ax
     mov sp, STACK_TOP
 
-    ; zeros out the type ptr flag
-    mov byte [type_ptr], al
     ; di always contains the current index to write to
     mov di, PROGRAM_MEM_START
 
@@ -48,6 +40,7 @@ main:
 
     mov si, PROGRAM
     call compiler_entry
+    call 0x8002
 
     jmp $
 
@@ -59,17 +52,12 @@ db "COMP_START"
 
 compiler_entry:
     .loop:
-        call next_token
+        call next_token ; read the type
         or si, si       ; next_token sets si to 0x0000 if there's no more tokens
         jne .no_eof
         ret
 
         .no_eof:
-        ; here we expect either a variable or procedure decl
-        ; in declarations, this means that the token will either be a INT or INT_PTR token
-        cmp ax, TokenKind.INT_PTR
-        sete byte [type_ptr]
-        
         ; get the name of the variable or function
         call next_token
         ; set up an entry for memory for this declaration
