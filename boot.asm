@@ -45,7 +45,7 @@ main:
         in al, dx
         stosb
         or al, al
-        jne ._load_program
+        jnz ._load_program
 
     ; di contains the current index to write to
     mov di, PROGRAM_MEM_START
@@ -73,74 +73,78 @@ compiler_entry:
         cmp ax, TokenKind.FN_ARGS
         jne .var
 
-        call _fn_decl
-        jmp .loop
+        call _block
+        ; emit a ret
+        mov al, 0xC3
+        
+        ; we use the stosw below, so one byte of random garbage gets written after each return
 
         .var:
         ; just need to create space in the program memory for this variable
         ; there's already an entry in the ident table, so just increment the next memory idx
-        inc di ; skip 2 bytes per variable
-        inc di ;
+        stosw ; you get garbage if you read uninit variables :)
         jmp .loop
-
-_fn_decl:
-    call next_token ; skip over the " {" that should be there
-    call _block
-    ; emit a ret
-    mov al, 0xC3
-    stosb
-    ret
 
 _block:
     .stmt_loop:
         call next_token
-        push .stmt_loop
         cmp ax, TokenKind.CLOSE_BRACE
         je .end
+        push .stmt_loop
         cmp ax, TokenKind.IF_START
-        jne ._next0
-        jmp _if_state
-        ._next0:
+        je _if_state ; returns to stmt_loop
         cmp ax, TokenKind.WHILE_START
-        jne .next1
-        jmp _while
-        .next1:
+        je _while ; returns to stmt_loop
         cmp ax, TokenKind.ASM_START
-        jne .next2
-        jmp _asm
-        .next2:
+        je _asm ; returns to stmt_loop
+
+        cmp ax, TokenKind.STAR ; everything that starts with a * is `*ptr = expr`
+        jne ._next0
+
+        call next_token ; get the ident to write to
         mov cx, word gs:[bx]
-        ; if the statement is not an if, while, or asm, it's either an assignment or a function call
+        call next_token ; eat the =
+        push mov_bx_deref_action
+        jmp assign_expr_common ; returns to stmt_loop
+
+        ._next0:
+        mov cx, word gs:[bx]
+        ; if the statement is not an if, while, asm, or `*ptr = expr`, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
         call next_token
         cmp ax, TokenKind.FN_CALL
-        jne _assign_expr ; will return to top of loop
+        je ._fn
+
+        push mov_bx_action
+        jmp assign_expr_common ; returns to stmt_loop
+
+        ._fn:
         mov dx, 0x17FF ; call [bx] (note: little endian)
-        jmp _mov_bx_action ; tail call (returns to top of loop)
+        jmp mov_bx_action ; tail call (returns to top of loop)
 
     .end:
-    pop ax
     ret
 
-; cx holds the address of the ident to assign to
-_assign_expr:
+assign_expr_common:
     push cx
-    call _expr ; NOTE: this will eat the ; if it exists
+    call _expr
     pop cx
 
-    ; codegen the store
-    mov dx, 0x0789 ; mov [bx], ax (note: little endian)
-    jmp _mov_bx_action ; tail call
+    mov dx, 0x0789 ; mov word [bx], ax
+
+    ret ; returns to the correct deref or direct assignment
 
 _while:
     push di ; store the current position to loop to
     call _if_state ; generate the condition and block
+    ; bx holds the address of the `if`'s jump target, adjust that forward by 3, which is the size of the jmp
+    add word [bx], 3
     pop bx
-    sub dx, di
-    sub dx, 3 ; size of the JMP rel16off
+    sub bx, di
+    sub bx, 3 ; size of the JMP rel16off
     mov al, 0xE9
     stosb
-    mov ax, dx
+    xchg ax, bx
     stosw
     ret
 
@@ -159,10 +163,10 @@ _if_state:
 
     ; fixup jump location
     mov ax, di
-    pop bx
-    sub ax, bx ; | jump target is relative to the end of the Jcc
-    dec ax     ; |
-    dec ax     ; |
+    pop bx     ; start of jump target
+    sub ax, bx ; jump target is relative to the end of the JE
+    dec ax
+    dec ax
 
     mov word [bx], ax
     ret
@@ -173,27 +177,37 @@ _if_state:
 ; cx must hold the constant to write to bx and dx must hold the next 2 bytes to write
 ; this is a common enough pattern that it's worth it
 ; clobbers ax
-_mov_bx_action:
+mov_bx_action:
     mov al, 0xBB ; 0xBB encodes `mov bx, ...`
     stosb
-    mov ax, cx ; constant to load into bx
+    xchg ax, cx ; constant to load into bx
     stosw
-    mov ax, dx ; action to happen after
+    .shared:
+    xchg ax, dx ; action to happen after
     stosw
+    .end:
     ret
+
+; mov bx, <ADDR>
+; mov bx, word [bx]
+; <2 BYTES>
+; cx must hold the address to load into bx, and dx must hold the final 2 bytes to write
+mov_bx_deref_action:
+    push dx
+    mov dx, 0x1F8B ; mov bx, word [bx]
+    call mov_bx_action
+    pop dx
+    jmp mov_bx_action.shared ; tail call
 
 _asm:
     ._loop:
         call next_token ; eat the .byte or find end
         cmp ax, TokenKind.ASM_END
-        je .end
+        je mov_bx_action.end  ; ret
         call next_token ; get the value
         stosb ; write the byte
         call next_token ; eat the ;
         jmp ._loop
-
-    .end:
-    ret
 
 ; emits an expression
 ; expressions return their value in ax
@@ -215,7 +229,7 @@ _expr:
 
     ; all non-semicolons are considered to be a condition
     ; conditions put a 1 in al if they are met, otherwise put a 0
-    push ax
+    xchg bx, ax ; save ax in bx for this call (the call saves it)
     call ._binop_shared
 
     ; this codegen works by emitting `cmp ax, cx; SETcc al`
@@ -229,16 +243,13 @@ _expr:
 
     ; it turns out that bits 1..=3 of the idents of the comparison operators are unique
     ; and easy to turn into an index
-    pop ax
-    movzx bx, al
     sub bl, 2
-    and bl, 0b0000_1100
-    shr bx, 2
+    and bx, 0x0C
+    shr bl, 2
     mov al, byte [bx + ._setcc_byte]
 
     mov ah, 0xC0 ; the last byte of the SETcc
-    stosw
-    jmp next_token ; eat the ; after a binop (tail call)
+    jmp .end_eat
 
     ; indexed by some bits in the last nibble of the ident
     ; yes this is cursed
@@ -252,19 +263,19 @@ _expr:
     ._binop_eq:
         call ._binop_shared
         mov ax, word [bx + 2]
+        .end_eat:
         stosw
-
-        jmp  next_token ; eat the ; after a binop (tail call)
+        jmp next_token ; eat the ; after a binop (tail call)
 
     ._arith_binop_codes:
         dw TokenKind.PLUS
             db 0x01, 0xC8 ; add ax, cx
-        dw TokenKind.MINUS
-            db 0x29, 0xC8 ; sub ax, cx
-        dw TokenKind.AND
-            db 0x21, 0xC8 ; and ax, cx
         dw TokenKind.OR
             db 0x09, 0xC8 ; or  ax, cx
+        dw TokenKind.AND
+            db 0x21, 0xC8 ; and ax, cx
+        dw TokenKind.MINUS
+            db 0x29, 0xC8 ; sub ax, cx
         dw TokenKind.XOR
             db 0x31, 0xC8 ; xor ax, cx
         dw TokenKind.SHL
@@ -290,6 +301,8 @@ _expr:
 
 _unary:
     call next_token
+    ; some things use this, save space
+    mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
 
     cmp ax, TokenKind.STAR
     je ._star
@@ -305,8 +318,20 @@ _unary:
     ; mov bx, <ADDR>
     ; mov ax, word [bx]
     ._ident:
-        mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
-        jmp _mov_bx_action ; tail call
+        jmp mov_bx_action ; tail call
+
+    ; mov bx, <ADDR>
+    ; mov bx, word [bx]
+    ; mov ax, word [bx]
+    ._star:
+        push dx
+        ; get next ident and then use its addr
+        call next_token
+        pop dx
+
+        mov cx, word gs:[bx] ; addr of the variable
+        jmp mov_bx_deref_action ; tail call
+
 
     ; mov ax, <ADDR>
     ._addr_of:
@@ -322,21 +347,6 @@ _unary:
         stosw
         ret
 
-    ; mov bx, <ADDR>
-    ; mov bx, word [bx]
-    ; mov ax, word [bx]
-    ._star:
-        ; get next ident and then use its addr
-        call next_token
-
-        mov cx, word gs:[bx] ; addr of the variable
-        mov dx, 0x1F8B ; mov bx, word [bx] (note: little endian)
-        call _mov_bx_action
-        mov ax, 0x078B ; mov ax, word [bx] (note: little endian)
-        stosw
-        ret
-
-
 ; si must hold the address of the current position in the text
 ; returns the 16 bit token value in ax, returns the the address allocated for the token in bx, and sets gs appropriately for the access
 ; increments si to the start of the next token
@@ -351,7 +361,7 @@ next_token:
     lodsb
     cmp al, 0x00 ; if a 0 byte is found at the start of a token, return EoF
     jne .no_end
-    mov si, 0x0000
+    xor si, si
     ret
 
     .no_end:
@@ -372,6 +382,7 @@ next_token:
 
     mov ax, bx ; store for return
 
+get_ident_addr:
     ; set gs to correctly address the highest nibble of the index table
     ; this is either 0x1000 for the low half, or 0x2000 for the high half
     clc        ; make sure a 0 gets rotated in

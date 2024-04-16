@@ -1,9 +1,7 @@
-int x ;
+int* x ;
 
-int main ()
-{
-    while( x != 0 ){
-        x = 20 ;
+int main (){
+    while( * x != 0 ){
+        * x = * x + 1 ;
     }
-    asm(" .byte 235 ; .byte 254 ; ");
 }

@@ -21,11 +21,13 @@ Programs are laid out in the following form:
 <binop>          = "+" | "-" | "&" | "|" | "^" | "<<" | ">>" | "==" | "!=" | "<" | "<="
 ```
 
-notable "features":
+### notable "features":
 
-- all declarations must be globals, scopes are a convenience
-- declarations must come before uses
+- all declarations MUST be globals, scopes are a convenience
+- declarations MUST come before uses
 - function names MUST be followed by a space
+- functions cannot return a value, even though they have a return type
+- `main` MUST NOT return, it MUST enter an infinite loop
 - the `()` in a function declaration MUST be preceeded and followed by a space
 - only types `int` and `int*` exist (and note that they are 16 bits each)
   - however, types are not checked, the target of a deref expression is cast to a `int*` and dereferenced

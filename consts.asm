@@ -19,7 +19,7 @@
         .OPEN_PAREN:  equ 0xFFF8 ; (
         .CLOSE_PAREN: equ 0xFFF9 ; )
         .CLOSE_BRACE: equ 0x004D ; }
-        .FN_ARGS:     equ 0xFFA9 ; ()
+        .FN_ARGS:     equ 0xFCE5 ; (){
         .FN_CALL:     equ 0xFCA5 ; ();
 
         .SEMICOLON:   equ 0x000B ; ;
@@ -30,6 +30,8 @@
         .ASM_START:   equ 0x973E ; asm("
         .DOT_BYTE:    equ 0x9491 ; .byte
         .ASM_END:     equ 0xFA4D ; ");
+
+        .MAIN_IDENT:  equ 0x03E4 ; main
 
         .STAR:        equ 0xFFFA ; *
         .AND:         equ 0xFFF6 ; &
