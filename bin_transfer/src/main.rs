@@ -137,15 +137,15 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-const TRANSFER_DELAY: Duration = Duration::from_micros(500);
+const TRANSFER_DELAY: Duration = Duration::from_micros(10_000);
 
 fn do_write<T: Read + Write>(target: &mut T, bin: &[u8]) -> Result<(), std::io::Error> {
     let mut padded = [0_u8; PAD_SIZE];
     padded[..bin.len()].copy_from_slice(bin);
     for (idx, b) in padded.into_iter().enumerate() {
-        if idx % 0x100 == 0 {
-            info!("transferring... {:#06X}/{:#06X}", idx, PAD_SIZE);
-        }
+        // if idx % 0x100 == 0 {
+        info!("transferring... {:#06X}/{:#06X}", idx, PAD_SIZE);
+        // }
         target.write(&[b])?;
         let _ = target.flush();
         // Sleep a little so that it reads properly.

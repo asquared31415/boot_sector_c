@@ -46,12 +46,6 @@ main:
 
     jmp $
 
-CompilerState:
-    .declaration: equ 1 << 0
-    .in_procedure: equ 1 << 1
-
-db "COMP_START"
-
 compiler_entry:
     .loop:
         call next_token ; read the type
@@ -63,7 +57,6 @@ compiler_entry:
         ; get the name of the variable or function
         call next_token
         ; set up an entry for memory for this declaration
-        call _get_token_addr
         mov word gs:[bx], di
 
         push ax ; save the ident for the next step
@@ -87,10 +80,17 @@ compiler_entry:
 _fn_decl:
     ; TODO: fn declaration
     call next_token ; skip over the " {" that should be there
+    call _block
+    ; emit a ret
+    mov al, 0xC3
+    stosb
+    ret
 
-        ; get the start of the next statement
+_block:
     .stmt_loop:
         call next_token
+        push gs ; | later things will want to use the memory for this token
+        push bx ; |
         cmp ax, TokenKind.CLOSE_BRACE
         je .end
         cmp ax, TokenKind.IF_START
@@ -101,53 +101,75 @@ _fn_decl:
         ; this requires looking at the next token to see if it is `();` or `=`.
         mov cx, ax
         call next_token
+        pop bx
+        pop gs
         cmp ax, TokenKind.FN_CALL
-        push .stmt_loop  ; these return into the top of the loop
-        je _fn_call      ;
-        jmp _assign_expr ;
+        push .stmt_loop  ; | these return into the top of the loop
+        je _fn_call      ; |
+        jmp _assign_expr ; |
 
     .end:
-    ; emit a ret
-    mov al, 0xC3
-    stosb
     ret
 
 _if_state:
+    call _expr ; parse an expr for the condition
+    ; if the expr is 1, we want to run the following block
+    mov ax, 0xC008 ; or al, al (little endian)
+    stosw
+    mov ax, 0x840F ; start of JE rel16off
+    stosw
+    push di ; save the location of the jump target to fixup later
+    stosw ; skip 2 bytes (we will overwrite them later)
+
+    ; codegen the block
+    call _block ; this also eats the } at the end of the statement
+
+    ; fixup jump location
+    mov ax, di
+    pop bx
+    sub ax, bx ; | jump target is relative to the end of the Jcc
+    dec ax     ; |
+    dec ax     ; |
+
+    mov word [bx], ax
+
+    jmp $
+
 _while_state:
     jmp $
 
-; cx holds the ident to assign to
+; gs:bx set up for the ident to assign to
 _assign_expr:
+    mov cx, word gs:[bx] ; | cx holds the address of the ident being called/written to
     push cx
     call _expr ; NOTE: this will eat the ; if it exists
     pop cx
 
     ; codegen the store
     mov dx, 0x0789 ; mov [bx], ax (note: little endian)
-    jmp _fn_call.shared
+    jmp _mov_bx_action ; tail call
 
 
-; cx holds the ident of the function to call
-_fn_call:
-    mov dx, 0x17FF ; call [bx] (note: little endian)
-
-    .shared: ; this code is shared with the assignment code, with the `call` replaced with a `mov`
-    push dx
-    mov bx, cx           ; | get the entry for the memory allocated for the ident
-    call _get_token_addr ; | that is being called
-    mov cx, word gs:[bx] ; | cx holds the final address of the ident being called
-
-    ; here we want to emit a sequence:
-    ; mov bx, <const>
-    ; call [bx]
+; emits a sequence
+; mov bx, <CONST>
+; <2 BYTES>
+; cx must hold the constant to write to bx and dx must hold the next 2 bytes to write
+; this is a common enough pattern that it's worth it
+; clobbers ax
+_mov_bx_action:
     mov al, 0xBB ; 0xBB encodes `mov bx, ...`
     stosb
-    mov ax, cx ; load the constant to call/write to
+    mov ax, cx ; constant to load into bx
     stosw
-    pop ax ; write the action
+    mov ax, dx ; action to happen after
     stosw
-
     ret
+
+
+_fn_call:
+    mov cx, word gs:[bx] ; | cx holds the address of the ident being called/written to
+    mov dx, 0x17FF ; call [bx] (note: little endian)
+    jmp _mov_bx_action ; tail call
 
 ; emits an expression
 ; expressions return their value in ax
@@ -155,6 +177,7 @@ _fn_call:
 _expr:
     call _unary
 
+    ; db "MEOW"
     call next_token
     mov bx, ._arith_binop_codes
     mov cx, 7
@@ -164,23 +187,52 @@ _expr:
         add bx, 4
         loop ._binop_loop
 
-    ; if it wasn't a binop, the next_token ate the token, which would be the ;
+    cmp ax, TokenKind.SEMICOLON
+    je ._no_binop
+
+    ; all non-semicolons are considered to be a condition
+    ; conditions put a 1 in al if they are met, otherwise put a 0
+    push ax
+    call ._binop_shared
+
+    ; this codegen works by emitting `cmp ax, cx; SETcc al`
+    mov ax, 0xC839 ; cmp ax, cx (note: little endian)
+    stosw
+
+    mov al, 0x0F ; first byte of SETcc
+    stosb
+
+    ; the setCC byte sequence is 0F XX C0, where the XX controls the condition
+
+    ; it turns out that bits 1..=3 of the idents of the comparison operators are unique
+    ; and easy to turn into an index
+    pop ax
+    movzx bx, al
+    and bl, 0b0000_1110
+    shr bx, 1
+    mov al, byte [bx + ._setcc_byte]
+
+    mov ah, 0xC0 ; the last byte of the SETcc
+    stosw
+    call next_token ; eat the ; after a binop
+    ._no_binop:
     ret
 
+    ; indexed by the top 3 bits of the last nibble of the ident
+    ; yes this is cursed
+    ._setcc_byte:
+        db 0x00
+        db 0x00
+        db 0x9E ; setle
+        db 0x95 ; setne
+        db 0x00
+        db 0x00
+        db 0x9C ; setl
+        db 0x94 ; sete
+
+
     ._binop_eq:
-        ; db "MEOW"
-        ; the previous unary codegen put something in ax already, so save it
-        ; to cx, emit another unary and then swap back
-        mov al, 0x91 ; xchg cx, ax
-        stosb
-
-        push ax ; we need another xchg after this
-        push bx ; save the index into the binop codes
-        call _unary ; now the first value is in cx, and the second is in ax
-        pop bx
-
-        pop ax ; xchg cx, ax
-        stosb
+        call ._binop_shared
 
         inc bx ; |
         inc bx ; | advance to the bytes to emit
@@ -206,6 +258,21 @@ _expr:
         dw TokenKind.SHR
             db 0xD3, 0xE8 ; shr ax, cl
 
+    ; sets up for the binop by getting the LHS into ax and handling the RHS and putting it in cx
+    ._binop_shared:
+        ; the previous unary codegen put something in ax already, so save it
+        ; to cx, emit another unary and then swap back
+        mov al, 0x91 ; xchg cx, ax
+        stosb
+
+        push ax ; we need another xchg after this
+        push bx ; save the index into the binop codes
+        call _unary ; now the first value is in cx, and the second is in ax
+        pop bx
+        pop ax ; xchg cx, ax
+        stosb
+        ret
+
 _unary:
     call next_token
 
@@ -218,7 +285,6 @@ _unary:
 
     ; something is an ident if it has a non-zero entry in the ident map
     ; otherwise it's considered to be a number
-    call _get_token_addr
     mov cx, word gs:[bx]
     or cx, cx
     jz ._num
@@ -226,14 +292,15 @@ _unary:
     ; mov bx, <ADDR>
     ; mov ax, word [bx]
     ._ident:
-        mov al, 0xBB ; mov bx, imm16
-        stosb
-        mov ax, cx ; addr of the variable
-        stosw
-        mov ax, 0x078B ; mov ax, word [bx] (note: little endian)
-        stosw
-        ret
+        mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
+        jmp _mov_bx_action ; tail call
 
+    ; mov ax, <ADDR>
+    ._addr_of:
+        ; get next ident and then use its addr
+        call next_token
+        mov ax, word gs:[bx] ; addr of the variable
+    ; mov ax, <CONST>
     ._num:
         push ax
         mov al, 0xB8 ; mov ax, imm16
@@ -242,57 +309,26 @@ _unary:
         stosw
         ret
 
-    ; get next ident and then use its addr
+    ; mov bx, <ADDR>
+    ; mov bx, word [bx]
+    ; mov ax, word [bx]
     ._star:
+        ; get next ident and then use its addr
         call next_token
-        call _get_token_addr
 
-        ; mov bx, <ADDR>
-        ; mov bx, word [bx]
-        ; mov ax, word [bx]
-        mov al, 0xBB ; mov bx, imm16
-        stosb
-        mov ax, word gs:[bx] ; addr of the variable
-        stosw
-        mov ax, 0x1F8B ; mov bx, word [bx] (note: little endian)
-        stosw
+        mov cx, word gs:[bx] ; addr of the variable
+        mov dx, 0x1F8B ; mov bx, word [bx] (note: little endian)
+        call _mov_bx_action
         mov ax, 0x078B ; mov ax, word [bx] (note: little endian)
         stosw
         ret
 
-    ; get next ident and then use its addr
-    ._addr_of:
-        call next_token
-        call _get_token_addr
-        mov cx, word gs:[bx]
-
-        mov al, 0xB8 ; mov ax, imm16
-        stosb
-        mov ax, cx ; addr of the variable
-        stosw
-        ret
-
-; token in bx
-; returns the address allocated for the token in bx, and sets gs appropriately for the access
-; clobbers dx
-_get_token_addr:
-    ; set gs to correctly address the highest nibble of the index table
-    ; this is either 0x1000 for the low half, or 0x2000 for the high half
-    clc        ; make sure a 0 gets rotated in
-    rcl bx, 1  ; rotate the high bit of bx into the carry register
-    setc dl    ; |
-    inc dl     ; | dl holds 2 if the high half is needed, 1 otherwise
-    shl dx, 12 ; turn the 1 or 2 in dl into 0x1000 or 0x2000 in dx
-    mov gs, dx
-    ; we don't restore bx here, because we need to multiply by 2 anyway, the rcl did that
-    ; really this whole thing just forms a 17 bit address with a constant offset
-    ; of 0x1_0000, if you think about it
-    ret
-
 
 ; si must hold the address of the current position in the text
-; returns the 16 bit token value in ax AND bx (for indexing), increments si to the end of the token
+; returns the 16 bit token value in ax, returns the the address allocated for the token in bx, and sets gs appropriately for the access
+; increments si to the start of the next token
 ; if a token was not found, sets si to 0x0000
+; clobbers dx
 next_token:
     ; al holds the current byte of the program, and ah must be 0 for the 16 bit addition
     xor ax, ax
@@ -321,7 +357,19 @@ next_token:
         cmp al, " "
         ja ._tokenizer_add_char
     
-    mov ax, bx
+    mov ax ,bx ; store for return
+
+    ; set gs to correctly address the highest nibble of the index table
+    ; this is either 0x1000 for the low half, or 0x2000 for the high half
+    clc        ; make sure a 0 gets rotated in
+    rcl bx, 1  ; rotate the high bit of bx into the carry register
+    setc dl    ; |
+    inc dl     ; | dl holds 2 if the high half is needed, 1 otherwise
+    shl dx, 12 ; turn the 1 or 2 in dl into 0x1000 or 0x2000 in dx
+    mov gs, dx
+    ; we don't restore bx here, because we need to multiply by 2 anyway, the rcl did that
+    ; really this whole thing just forms a 17 bit address with a constant offset
+    ; of 0x1_0000, if you think about it
     ret
 
 ; print_char:

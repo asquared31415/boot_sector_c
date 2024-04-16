@@ -2,5 +2,7 @@ int x ;
 
 int main ()
 {
-    x = x >> 3 ;
+    if( x != 0 ){
+        x = 20 ;
+    }
 }

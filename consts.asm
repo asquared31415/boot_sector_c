@@ -24,6 +24,8 @@
         .FN_ARGS:     equ 0xFFA9 ; ()
         .FN_CALL:     equ 0xFCA5 ; ();
 
+        .SEMICOLON:   equ 0x000B ; ;
+
         .IF_START:    equ 0x1858 ; if(
         .WHILE_START: equ 0xDA02 ; while(
 
