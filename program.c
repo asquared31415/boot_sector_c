@@ -1,7 +1,11 @@
 int* x ;
 
+int meow (){
+    x = 49152 ;
+}
+
 int main (){
-    while( * x != 0 ){
-        * x = * x + 1 ;
-    }
+    meow ();
+    * x = 42 ;
+    asm(" .byte 235 ; .byte 254 ; ");
 }

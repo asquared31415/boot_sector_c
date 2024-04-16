@@ -50,16 +50,15 @@ main:
     ; di contains the current index to write to
     mov di, PROGRAM_MEM_START
 
-    call compiler_entry
-    ; call 0x8002
-    jmp $
-
+    ; fallthrough, returns to end
 compiler_entry:
     .loop:
         call next_token ; read the type
         or si, si       ; next_token sets si to 0x0000 if there's no more tokens
         jne .no_eof
-        ret
+        ; all well formed programs end with `}`, which will set gs to 0x1000
+        mov ax, word gs:[0x07C8] ; gets main's address
+        jmp ax
 
         .no_eof:
         ; get the name of the variable or function
@@ -76,7 +75,6 @@ compiler_entry:
         call _block
         ; emit a ret
         mov al, 0xC3
-        
         ; we use the stosw below, so one byte of random garbage gets written after each return
 
         .var:
@@ -85,11 +83,23 @@ compiler_entry:
         stosw ; you get garbage if you read uninit variables :)
         jmp .loop
 
+_asm:
+    ._loop:
+        call next_token ; eat the .byte or find end
+        cmp ax, TokenKind.ASM_END
+        je mov_bx_action.end  ; ret
+        call next_token ; get the value
+        stosb ; write the byte
+        call next_token ; eat the ;
+        jmp ._loop
+
 _block:
     .stmt_loop:
         call next_token
         cmp ax, TokenKind.CLOSE_BRACE
-        je .end
+        jne .not_end
+        ret
+        .not_end:
         push .stmt_loop
         cmp ax, TokenKind.IF_START
         je _if_state ; returns to stmt_loop
@@ -119,11 +129,8 @@ _block:
         jmp assign_expr_common ; returns to stmt_loop
 
         ._fn:
-        mov dx, 0x17FF ; call [bx] (note: little endian)
+        mov dx, 0xD3FF ; call bx (note: little endian)
         jmp mov_bx_action ; tail call (returns to top of loop)
-
-    .end:
-    ret
 
 assign_expr_common:
     push cx
@@ -139,14 +146,12 @@ _while:
     call _if_state ; generate the condition and block
     ; bx holds the address of the `if`'s jump target, adjust that forward by 3, which is the size of the jmp
     add word [bx], 3
-    pop bx
-    sub bx, di
-    sub bx, 3 ; size of the JMP rel16off
+    pop dx
+    sub dx, di
+    sub dx, 3 ; size of the JMP rel16off
     mov al, 0xE9
     stosb
-    xchg ax, bx
-    stosw
-    ret
+    jmp mov_bx_action.shared ; writes dx and returns
 
 _if_state:
     call _expr ; parse an expr for the condition
@@ -199,16 +204,6 @@ mov_bx_deref_action:
     pop dx
     jmp mov_bx_action.shared ; tail call
 
-_asm:
-    ._loop:
-        call next_token ; eat the .byte or find end
-        cmp ax, TokenKind.ASM_END
-        je mov_bx_action.end  ; ret
-        call next_token ; get the value
-        stosb ; write the byte
-        call next_token ; eat the ;
-        jmp ._loop
-
 ; emits an expression
 ; expressions return their value in ax
 ; binary expressions use ax for the LHS and cx for the RHS
@@ -225,7 +220,7 @@ _expr:
         loop ._binop_loop
 
     cmp ax, TokenKind.SEMICOLON
-    je ._no_binop
+    je mov_bx_action.end
 
     ; all non-semicolons are considered to be a condition
     ; conditions put a 1 in al if they are met, otherwise put a 0
@@ -296,7 +291,6 @@ _expr:
         pop bx
         pop ax ; xchg cx, ax
         stosb
-    ._no_binop:
         ret
 
 _unary:
@@ -313,12 +307,21 @@ _unary:
     ; otherwise it's considered to be a number
     mov cx, word gs:[bx]
     or cx, cx
-    jz ._num
+    jnz ._ident
 
-    ; mov bx, <ADDR>
-    ; mov ax, word [bx]
-    ._ident:
+    ; mov ax, <CONST>
+    ._num:
+        xchg cx, ax
+        mov dx, 0x9093
+        ._ident:
         jmp mov_bx_action ; tail call
+
+    ; mov ax, <ADDR>
+    ._addr_of:
+        ; get next ident and then use its addr
+        call next_token
+        mov ax, word gs:[bx] ; addr of the variable
+        jmp ._ident
 
     ; mov bx, <ADDR>
     ; mov bx, word [bx]
@@ -331,21 +334,6 @@ _unary:
 
         mov cx, word gs:[bx] ; addr of the variable
         jmp mov_bx_deref_action ; tail call
-
-
-    ; mov ax, <ADDR>
-    ._addr_of:
-        ; get next ident and then use its addr
-        call next_token
-        mov ax, word gs:[bx] ; addr of the variable
-    ; mov ax, <CONST>
-    ._num:
-        push ax
-        mov al, 0xB8 ; mov ax, imm16
-        stosb
-        pop ax ; the constant
-        stosw
-        ret
 
 ; si must hold the address of the current position in the text
 ; returns the 16 bit token value in ax, returns the the address allocated for the token in bx, and sets gs appropriately for the access
