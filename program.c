@@ -16,6 +16,17 @@ int outb (){
 }
 int c ;
 int state ;
+int read_char (){
+    state = 0 ;
+    while( state == 0 ){
+        port = 1021 ;
+        inb ();
+        state = port_val & 1 ; 
+    }
+    port = 1016 ;
+    inb ();
+    c = ax ;
+}
 int print_char (){
     state = 0 ;
     while( state == 0 ){
@@ -29,8 +40,8 @@ int print_char (){
 }
 
 int main (){
-    c = 65 ;
     while( 1 == 1 ){
+        read_char ();
         print_char ();
     }
     asm(" .byte 235 ; .byte 254 ; ");
