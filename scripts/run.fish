@@ -1,12 +1,12 @@
 #!/usr/bin/env fish
 if scripts/build.fish
-    nohup qemu-system-x86_64 -drive format=raw,file=qemu_img -serial unix:qemu_socket,server -D qemu.log -d int,cpu_reset -s &> /dev/null &
+    nohup qemu-system-x86_64 -drive format=raw,file=qemu_img -serial unix:qemu_socket,server,nowait -D qemu.log -d int,cpu_reset -s &> /dev/null &
 
     # Give time for qemu to start and create the socket
     sleep 1
-    netcat -U qemu_socket | stdbuf -o 0 hexdump -v -e '/1 "%02X "' # HEX MODE
-    # socat -,raw,echo=0 unix-connect:qemu_socket # TEXT MODE
+    RUST_LOG="info" cargo run --quiet --manifest-path=bin_transfer/Cargo.toml -- --socket unix-connect:qemu_socket --transfer-bin program.c --no-checksum
+    # netcat -U qemu_socket | stdbuf -o 0 hexdump -v -e '/1 "%02X "' # HEX MODE
 
-    # clear socat output when done
+    # clear socat/hex output when done
     clear
 end
