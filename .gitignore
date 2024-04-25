@@ -1,5 +1,7 @@
 .vscode/
 
+INTERESTED.txt
+
 # binary artifacts
 out/
 qemu_img
