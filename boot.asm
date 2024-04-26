@@ -112,25 +112,27 @@ _block:
         jne ._next0
 
         call next_token ; get the ident to write to
-        mov cx, word gs:[bx]
+        push cx
         call next_token ; eat the =
+        pop cx
         push mov_bx_deref_action
         jmp assign_expr_common ; returns to stmt_loop
 
         ._next0:
-        mov cx, word gs:[bx]
+        push cx
         ; if the statement is not an if, while, asm, or `*ptr = expr`, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
         call next_token
+        pop cx
+        push mov_bx_action
         cmp ax, TokenKind.FN_CALL
         je ._fn
 
-        push mov_bx_action
         jmp assign_expr_common ; returns to stmt_loop
 
         ._fn:
         mov dx, 0xD3FF ; call bx (note: little endian)
-        jmp mov_bx_action ; tail call (returns to top of loop)
+        ret ; returns to mov_bx_action, which returns to top of loop
 
 assign_expr_common:
     push cx
@@ -305,7 +307,6 @@ _unary:
 
     ; something is an ident if it has a non-zero entry in the ident map
     ; otherwise it's considered to be a number
-    mov cx, word gs:[bx]
     or cx, cx
     jnz ._ident
 
@@ -320,7 +321,7 @@ _unary:
     ._addr_of:
         ; get next ident and then use its addr
         call next_token
-        mov ax, word gs:[bx] ; addr of the variable
+        xchg ax, cx
         jmp ._ident
 
     ; mov bx, <ADDR>
@@ -331,8 +332,6 @@ _unary:
         ; get next ident and then use its addr
         call next_token
         pop dx
-
-        mov cx, word gs:[bx] ; addr of the variable
         jmp mov_bx_deref_action ; tail call
 
 ; si must hold the address of the current position in the text
@@ -370,7 +369,6 @@ next_token:
 
     mov ax, bx ; store for return
 
-get_ident_addr:
     ; set gs to correctly address the highest nibble of the index table
     ; this is either 0x1000 for the low half, or 0x2000 for the high half
     clc        ; make sure a 0 gets rotated in
@@ -382,6 +380,7 @@ get_ident_addr:
     ; we don't restore bx here, because we need to multiply by 2 anyway, the rcl did that
     ; really this whole thing just forms a 17 bit address with a constant offset
     ; of 0x1_0000, if you think about it
+    mov cx, word gs:[bx]
     ret
 
 ; print_char:
