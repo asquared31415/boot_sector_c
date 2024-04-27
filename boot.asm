@@ -53,14 +53,7 @@ main:
     ; fallthrough, returns to end
 compiler_entry:
     .loop:
-        call next_token ; read the type
-        or si, si       ; next_token sets si to 0x0000 if there's no more tokens
-        jne .no_eof
-        ; all well formed programs end with `}`, which will set gs to 0x1000
-        mov ax, word gs:[0x07C8] ; gets main's address
-        jmp ax
-
-        .no_eof:
+        call next_token ; discard the type
         ; get the name of the variable or function
         call next_token
         ; set up an entry for memory for this declaration
@@ -107,9 +100,14 @@ _block:
         je _while ; returns to stmt_loop
         cmp ax, TokenKind.ASM_START
         je _asm ; returns to stmt_loop
-
-        cmp ax, TokenKind.STAR ; everything that starts with a * is `*ptr = expr`
+        cmp ax, TokenKind.RETURN
         jne ._next0
+        mov dl, 0xC3
+        jmp mov_bx_action.shared ; write C3 XX on return, tail call, returns to caller
+
+        ._next0:
+        cmp ax, TokenKind.STAR ; everything that starts with a * is `*ptr = expr`
+        jne ._next1
 
         call next_token ; get the ident to write to
         push cx
@@ -118,7 +116,7 @@ _block:
         push mov_bx_deref_action
         jmp assign_expr_common ; returns to stmt_loop
 
-        ._next0:
+        ._next1:
         push cx
         ; if the statement is not an if, while, asm, or `*ptr = expr`, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
@@ -213,6 +211,9 @@ _expr:
     call _unary
 
     call next_token
+    cmp ax, TokenKind.SEMICOLON
+    je mov_bx_action.end
+
     mov bx, ._arith_binop_codes
     mov cx, 7
     ._binop_loop:
@@ -220,9 +221,6 @@ _expr:
         je ._binop_eq
         add bx, 4
         loop ._binop_loop
-
-    cmp ax, TokenKind.SEMICOLON
-    je mov_bx_action.end
 
     ; all non-semicolons are considered to be a condition
     ; conditions put a 1 in al if they are met, otherwise put a 0
@@ -328,17 +326,15 @@ _unary:
     ; mov bx, word [bx]
     ; mov ax, word [bx]
     ._star:
-        push dx
         ; get next ident and then use its addr
         call next_token
-        pop dx
         jmp mov_bx_deref_action ; tail call
 
 ; si must hold the address of the current position in the text
-; returns the 16 bit token value in ax, returns the the address allocated for the token in bx, and sets gs appropriately for the access
+; returns the 16 bit token value in ax and the entry in the ident map in cx
 ; increments si to the start of the next token
 ; if a token was not found, sets si to 0x0000
-; clobbers dx
+; clobbers bx
 next_token:
     ; al holds the current byte of the program, and ah must be 0 for the 16 bit addition
     xor ax, ax
@@ -348,8 +344,9 @@ next_token:
     lodsb
     cmp al, 0x00 ; if a 0 byte is found at the start of a token, return EoF
     jne .no_end
-    xor si, si
-    ret
+    ; all well formed programs end with `}`, which will set gs to 0x1000
+    mov ax, word gs:[0x07C8] ; gets main's address
+    jmp ax
 
     .no_end:
     ; at the beginning of a token, skip anything up to and including space
@@ -373,10 +370,10 @@ next_token:
     ; this is either 0x1000 for the low half, or 0x2000 for the high half
     clc        ; make sure a 0 gets rotated in
     rcl bx, 1  ; rotate the high bit of bx into the carry register
-    setc dl    ; |
-    inc dl     ; | dl holds 2 if the high half is needed, 1 otherwise
-    shl dx, 12 ; turn the 1 or 2 in dl into 0x1000 or 0x2000 in dx
-    mov gs, dx
+    setc cl    ; |
+    inc cl     ; | cl holds 2 if the high half is needed, 1 otherwise
+    shl cx, 12 ; turn the 1 or 2 in cl into 0x1000 or 0x2000 in dx
+    mov gs, cx
     ; we don't restore bx here, because we need to multiply by 2 anyway, the rcl did that
     ; really this whole thing just forms a 17 bit address with a constant offset
     ; of 0x1_0000, if you think about it

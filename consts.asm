@@ -35,6 +35,7 @@
 
         .STAR:        equ 0xFFFA ; *
         .AND:         equ 0xFFF6 ; &
+        .RETURN:      equ 0x7DA7 ; return;
 
         .PLUS:        equ 0xFFFB
         .MINUS:       equ 0xFFFD

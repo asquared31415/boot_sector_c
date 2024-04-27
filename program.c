@@ -26,6 +26,7 @@ int read_char (){
     port = 1016 ;
     inb ();
     c = ax ;
+    return;
 }
 int print_char (){
     state = 0 ;
