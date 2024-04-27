@@ -118,7 +118,7 @@ _block:
 
         ._next1:
         push cx
-        ; if the statement is not an if, while, asm, or `*ptr = expr`, it's either an assignment or a function call
+        ; if the statement is not an if, while, asm, return, or `*ptr = expr`, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
         call next_token
         pop cx
@@ -181,7 +181,7 @@ _if_state:
 ; <2 BYTES>
 ; cx must hold the constant to write to bx and dx must hold the next 2 bytes to write
 ; this is a common enough pattern that it's worth it
-; clobbers ax
+; clobbers ax, exchanges cx and dx
 mov_bx_action:
     mov al, 0xBB ; 0xBB encodes `mov bx, ...`
     stosb
