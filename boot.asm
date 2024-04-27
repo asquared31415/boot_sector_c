@@ -112,33 +112,30 @@ _block:
         call next_token ; get the ident to write to
         push cx
         call next_token ; eat the =
-        pop cx
         push mov_bx_deref_action
         jmp assign_expr_common ; returns to stmt_loop
 
         ._next1:
+        push mov_bx_action
         push cx
         ; if the statement is not an if, while, asm, return, or `*ptr = expr`, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
         call next_token
-        pop cx
-        push mov_bx_action
         cmp ax, TokenKind.FN_CALL
         je ._fn
 
         jmp assign_expr_common ; returns to stmt_loop
 
         ._fn:
+        pop cx
         mov dx, 0xD3FF ; call bx (note: little endian)
         ret ; returns to mov_bx_action, which returns to top of loop
 
+; top of stack must contain the ident to write to on call
 assign_expr_common:
-    push cx
     call _expr
     pop cx
-
     mov dx, 0x0789 ; mov word [bx], ax
-
     ret ; returns to the correct deref or direct assignment
 
 _while:
@@ -203,6 +200,43 @@ mov_bx_deref_action:
     call mov_bx_action
     pop dx
     jmp mov_bx_action.shared ; tail call
+
+_unary:
+    call next_token
+    ; some things use this, save space
+    mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
+
+    cmp ax, TokenKind.STAR
+    je ._star
+    cmp ax, TokenKind.AND
+    je ._addr_of
+
+    ; something is an ident if it has a non-zero entry in the ident map
+    ; otherwise it's considered to be a number
+    or cx, cx
+    jnz ._ident
+
+    ; mov ax, <CONST>
+    ._num:
+        xchg cx, ax
+        mov dx, 0x9093
+        ._ident:
+        jmp mov_bx_action ; tail call
+
+    ; mov ax, <ADDR>
+    ._addr_of:
+        ; get next ident and then use its addr
+        call next_token
+        xchg ax, cx
+        jmp ._ident
+
+    ; mov bx, <ADDR>
+    ; mov bx, word [bx]
+    ; mov ax, word [bx]
+    ._star:
+        ; get next ident and then use its addr
+        call next_token
+        jmp mov_bx_deref_action ; tail call
 
 ; emits an expression
 ; expressions return their value in ax
@@ -292,43 +326,6 @@ _expr:
         pop ax ; xchg cx, ax
         stosb
         ret
-
-_unary:
-    call next_token
-    ; some things use this, save space
-    mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
-
-    cmp ax, TokenKind.STAR
-    je ._star
-    cmp ax, TokenKind.AND
-    je ._addr_of
-
-    ; something is an ident if it has a non-zero entry in the ident map
-    ; otherwise it's considered to be a number
-    or cx, cx
-    jnz ._ident
-
-    ; mov ax, <CONST>
-    ._num:
-        xchg cx, ax
-        mov dx, 0x9093
-        ._ident:
-        jmp mov_bx_action ; tail call
-
-    ; mov ax, <ADDR>
-    ._addr_of:
-        ; get next ident and then use its addr
-        call next_token
-        xchg ax, cx
-        jmp ._ident
-
-    ; mov bx, <ADDR>
-    ; mov bx, word [bx]
-    ; mov ax, word [bx]
-    ._star:
-        ; get next ident and then use its addr
-        call next_token
-        jmp mov_bx_deref_action ; tail call
 
 ; si must hold the address of the current position in the text
 ; returns the 16 bit token value in ax and the entry in the ident map in cx
