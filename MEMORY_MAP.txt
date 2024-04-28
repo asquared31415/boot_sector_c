@@ -7,4 +7,4 @@
 0x0_7E00-0x0_7FFF: misc boot sector RAM
 0x0_8000-0x0_BFFF: compiler program memory
 0x0_C000-0x0_FFFF: unallocated RAM
-0x1_0000-0x1_FFFF: compiler ident->mem table
+0x1_0000-0x2_FFFF: compiler ident->mem table

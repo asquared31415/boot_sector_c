@@ -53,7 +53,13 @@ main:
     ; fallthrough, returns to end
 compiler_entry:
     .loop:
-        call next_token ; discard the type
+        stosb          ; | align to 2 bytes
+        and di, 0xFFFE ; | (note: this is 3 bytes, assembler shortens it)
+        call next_token
+        cmp ax, TokenKind.INT_PTR
+        jne ._no_ptr
+        stosb ; increment by 1 to mark as int ptr
+        ._no_ptr:
         ; get the name of the variable or function
         call next_token
         ; set up an entry for memory for this declaration
@@ -63,14 +69,14 @@ compiler_entry:
         ; functions MUST have those characters while variables MUST have a `;`
         call next_token
         cmp ax, TokenKind.FN_ARGS
-        jne .var
+        jne ._var
 
         call _block
         ; emit a ret
         mov al, 0xC3
         ; we use the stosw below, so one byte of random garbage gets written after each return
 
-        .var:
+        ._var:
         ; just need to create space in the program memory for this variable
         ; there's already an entry in the ident table, so just increment the next memory idx
         stosw ; you get garbage if you read uninit variables :)
@@ -202,33 +208,28 @@ mov_bx_deref_action:
     jmp mov_bx_action.shared ; tail call
 
 _unary:
+    xor bp, bp
     call next_token
     ; some things use this, save space
     mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
 
     cmp ax, TokenKind.STAR
     je ._star
-    cmp ax, TokenKind.AND
-    je ._addr_of
 
     ; something is an ident if it has a non-zero entry in the ident map
     ; otherwise it's considered to be a number
     or cx, cx
-    jnz ._ident
+    jz ._num
+
+    ._ident:
+        mov bp, cx
+        jmp mov_bx_action ; tail call
 
     ; mov ax, <CONST>
     ._num:
         xchg cx, ax
         mov dx, 0x9093
-        ._ident:
         jmp mov_bx_action ; tail call
-
-    ; mov ax, <ADDR>
-    ._addr_of:
-        ; get next ident and then use its addr
-        call next_token
-        xchg ax, cx
-        jmp ._ident
 
     ; mov bx, <ADDR>
     ; mov bx, word [bx]
@@ -243,17 +244,19 @@ _unary:
 ; binary expressions use ax for the LHS and cx for the RHS
 _expr:
     call _unary
-
+    ; db "MEOW"
     call next_token
     cmp ax, TokenKind.SEMICOLON
     je mov_bx_action.end
 
+    ; NOTE: at this point, if it's not a semicolon, the token must be a binop token
+    ; the binop tokens all have unique low bytes, so only that is compared
     mov bx, ._arith_binop_codes
     mov cx, 7
     ._binop_loop:
-        cmp ax, word [bx]
+        cmp al, byte [bx]
         je ._binop_eq
-        add bx, 4
+        add bx, 3
         loop ._binop_loop
 
     ; all non-semicolons are considered to be a condition
@@ -270,7 +273,7 @@ _expr:
 
     ; the setCC byte sequence is 0F XX C0, where the XX controls the condition
 
-    ; it turns out that bits 1..=3 of the idents of the comparison operators are unique
+    ; it turns out that bits 2..3 of the idents of the comparison operators are unique
     ; and easy to turn into an index
     sub bl, 2
     and bx, 0x0C
@@ -291,25 +294,26 @@ _expr:
 
     ._binop_eq:
         call ._binop_shared
-        mov ax, word [bx + 2]
+        mov ax, word [bx + 1]
         .end_eat:
         stosw
         jmp next_token ; eat the ; after a binop (tail call)
 
+    ; NOTE: truncation to low byte is intentional, see note above
     ._arith_binop_codes:
-        dw TokenKind.PLUS
+        db TokenKind.PLUS & 0xFF
             db 0x01, 0xC8 ; add ax, cx
-        dw TokenKind.OR
+        db TokenKind.OR & 0xFF
             db 0x09, 0xC8 ; or  ax, cx
-        dw TokenKind.AND
+        db TokenKind.AND & 0xFF
             db 0x21, 0xC8 ; and ax, cx
-        dw TokenKind.MINUS
+        db TokenKind.MINUS & 0xFF
             db 0x29, 0xC8 ; sub ax, cx
-        dw TokenKind.XOR
+        db TokenKind.XOR & 0xFF
             db 0x31, 0xC8 ; xor ax, cx
-        dw TokenKind.SHL
+        db TokenKind.SHL & 0xFF
             db 0xD3, 0xE0 ; shl ax, cl
-        dw TokenKind.SHR
+        db TokenKind.SHR & 0xFF
             db 0xD3, 0xE8 ; shr ax, cl
 
     ; sets up for the binop by getting the LHS into ax and handling the RHS and putting it in cx
@@ -319,12 +323,21 @@ _expr:
         mov al, 0x91 ; xchg cx, ax
         stosb
 
+        push bp ; the addr of the ident in the program memory
         push ax ; we need another xchg after this
         push bx ; save the index into the binop codes
         call _unary ; now the first value is in cx, and the second is in ax
         pop bx
         pop ax ; xchg cx, ax
         stosb
+
+        ; if the lhs of a binop was a pointer, multiply the rhs by 4
+        pop ax
+        and al, 0x01
+        je ._no_ptr
+        mov ax, 0xE1D1 ; shl cx, 1
+        stosw
+        ._no_ptr:
         ret
 
 ; si must hold the address of the current position in the text
@@ -365,9 +378,10 @@ next_token:
 
     ; set gs to correctly address the highest nibble of the index table
     ; this is either 0x1000 for the low half, or 0x2000 for the high half
-    clc        ; make sure a 0 gets rotated in
+    xor cx, cx ; clears the carry to ensure a 0 gets rotated in and makes sure
+               ; that cx is 0 if the high bit of bx is 0
     rcl bx, 1  ; rotate the high bit of bx into the carry register
-    setc cl    ; |
+    rcl cx, 1
     inc cl     ; | cl holds 2 if the high half is needed, 1 otherwise
     shl cx, 12 ; turn the 1 or 2 in cl into 0x1000 or 0x2000 in dx
     mov gs, cx
