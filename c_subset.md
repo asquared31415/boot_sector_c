@@ -4,18 +4,17 @@ Programs are laid out in the following form:
 
 ```abnf
 <program>        = (<variable-decl>)* (<procedure-decl>)*
-<variable-decl>  = <type> <ident> ";"
-<procedure-decl> = <type> <ident> " ()" " {" (<statement>)* "}"
+<variable-decl>  = <type> <ident> " ;"
+<procedure-decl> = <type> <ident> " (){" (<statement>)* "}"
 <ident>          = <ident-start>(<ident-cont>)*
 <type>           = "int" | "int*"
 <statement>      = <assign-expr>" ;"
-                 | <ident> " ();" ; <- function call
+                 | <ident> " ();"
                  | "if(" <expr> "){" (<statement>)* "}"
-                 | "while(" <expr> "){" (<statement>)* "}" ; TODO
+                 | "while(" <expr> "){" (<statement>)* "}"
 <assign-expr>    = <ident> " = " <expr>
 <expr>           = <unary> (<binop> <unary>)?
 <unary>          = "* " <ident>
-                 | "& " <ident>
                  | <ident>
                  | <integer>
 <binop>          = "+" | "-" | "&" | "|" | "^" | "<<" | ">>" | "==" | "!=" | "<" | "<="
