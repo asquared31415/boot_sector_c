@@ -37,15 +37,15 @@
         .AND:         equ 0xFFF6 ; &
         .RETURN:      equ 0x7DA7 ; return;
 
-        .PLUS:        equ 0xFFFB
-        .MINUS:       equ 0xFFFD
-        .OR:          equ 0x004C
-        .XOR:         equ 0x002E
-        .SHL:         equ 0x0084
-        .SHR:         equ 0x009A
-        .EQUAL_EQUAL: equ 0x008F
-        .NOT_EQUAL:   equ 0xFF77
-        .LESS:        equ 0x000C
-        .LESS_EQUAL:  equ 0x0085
+        .PLUS:        equ 0xFFFB ; +
+        .MINUS:       equ 0xFFFD ; -
+        .OR:          equ 0x004C ; |
+        .XOR:         equ 0x002E ; ^
+        .SHL:         equ 0x0084 ; <<
+        .SHR:         equ 0x009A ; >>
+        .EQUAL_EQUAL: equ 0x008F ; ==
+        .NOT_EQUAL:   equ 0xFF77 ; !=
+        .LESS:        equ 0x000C ; <
+        .LESS_EQUAL:  equ 0x0085 ; <=
 
 %endif

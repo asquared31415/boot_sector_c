@@ -37,14 +37,14 @@ main:
     mov di, si
 
     ._load_program:
-        mov dx, COM1_PORT + 5
+        mov dx, COM1_PORT + 5 ; status port
         in al, dx
-        and al, 0x01
+        and al, 0x01 ; bit 0 is set if there is a character ready
         jz ._load_program
-        mov dx, COM1_PORT
+        mov dx, COM1_PORT ; data port
         in al, dx
         stosb
-        or al, al
+        or al, al ; exit when a 0x00 byte is read
         jnz ._load_program
 
     ; di contains the current index to write to
@@ -408,9 +408,13 @@ TIMES 0x1BE-($-$$) db 0x00
 ; Set up partition table
 ; This is because the hardware in use needs this to dectect as a "USB key"
 
-; Starts at the first sector, is 8 sectors long, allowing 7 sectors of user data (0xE00 bytes).
+; Starts at the first sector, is 1 sectors long
 %assign PART0_LBA_START 0
-%assign PART0_LBA_SIZE  8
+%assign PART0_LBA_SIZE  1
+
+; Starts after the boot partition, end at the end of the first cylinder, sector 7688.
+%assign PART1_LBA_START 1
+%assign PART1_LBA_SIZE  7687
 
 ; ==============================================================================
 ; actual impl here, but above this is the Abstraction that's all nice and fuzzy
@@ -443,10 +447,6 @@ part0:
 .CHS_end:    LBA_TO_CHS_BYTES PART0_LBA_START + PART0_LBA_SIZE
 .LBA_start:  dd PART0_LBA_START
 .LBA_count:  dd PART0_LBA_SIZE
-
-; Starts after the boot partition, end at the end of the first cylinder, sector 7688.
-%assign PART1_LBA_START 8
-%assign PART1_LBA_SIZE  7680
 
 part1:
 .attributes: db 0x00 ; Non-active
