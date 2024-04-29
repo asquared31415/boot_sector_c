@@ -140,7 +140,6 @@ fn do_write<T: Read + Write>(target: &mut T, bin: &[u8]) -> Result<(), std::io::
         // Sleep a little so that it reads properly.
         thread::sleep(TRANSFER_DELAY);
     }
-    target.write(&[0x00])?;
     let _ = target.flush();
     info!("transferring... {:#06X}/{:#06X}", bin.len(), bin.len());
     Ok(())

@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 if scripts/build.fish
     # -S here causes qemu to wait for gdb
-    nohup qemu-system-x86_64 -drive format=raw,file=qemu_img -serial unix:qemu_socket,server,nowait -D qemu.log -d int,cpu_reset -s -S &> /dev/null &
+    nohup qemu-system-i386 -drive format=raw,file=qemu_img -serial unix:qemu_socket,server,nowait -D qemu.log -d int,cpu_reset -s -S &> /dev/null &
 
     # Give time for qemu to start and create the socket
     sleep 1

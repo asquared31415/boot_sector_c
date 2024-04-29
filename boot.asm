@@ -51,6 +51,7 @@ main:
     mov di, PROGRAM_MEM_START
 
     ; fallthrough, returns to end
+    ; db "--"
 compiler_entry:
     .loop:
         stosb          ; | align to 2 bytes
@@ -65,7 +66,7 @@ compiler_entry:
         ; set up an entry for memory for this declaration
         mov word gs:[bx], di
 
-        ; to distinguish a function and a variable declaration, look for a `()` following it.
+        ; to distinguish a function and a variable declaration, look for a `(){` following it.
         ; functions MUST have those characters while variables MUST have a `;`
         call next_token
         cmp ax, TokenKind.FN_ARGS
@@ -93,6 +94,7 @@ _asm:
         jmp ._loop
 
 _block:
+; db "--"
     .stmt_loop:
         call next_token
         cmp ax, TokenKind.CLOSE_BRACE
@@ -118,6 +120,7 @@ _block:
         call next_token ; get the ident to write to
         push cx
         call next_token ; eat the =
+        pop cx
         push mov_bx_deref_action
         jmp assign_expr_common ; returns to stmt_loop
 
@@ -127,18 +130,19 @@ _block:
         ; if the statement is not an if, while, asm, return, or `*ptr = expr`, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
         call next_token
+        pop cx
         cmp ax, TokenKind.FN_CALL
         je ._fn
 
         jmp assign_expr_common ; returns to stmt_loop
 
         ._fn:
-        pop cx
         mov dx, 0xD3FF ; call bx (note: little endian)
         ret ; returns to mov_bx_action, which returns to top of loop
 
-; top of stack must contain the ident to write to on call
+; cx contains the addr to write to on call
 assign_expr_common:
+    push cx
     call _expr
     pop cx
     mov dx, 0x0789 ; mov word [bx], ax
@@ -147,7 +151,7 @@ assign_expr_common:
 _while:
     push di ; store the current position to loop to
     call _if_state ; generate the condition and block
-    ; bx holds the address of the `if`'s jump target, adjust that forward by 3, which is the size of the jmp
+    ; bx holds the address of the `if`'s jump target, adjust that forward by 3, which is the size of the loop jmp
     add word [bx], 3
     pop dx
     sub dx, di
@@ -225,10 +229,12 @@ _unary:
         mov bp, cx
         jmp mov_bx_action ; tail call
 
-    ; mov ax, <CONST>
+    ; mov bx, <CONST>
+    ; xchg ax, bx
+    ; nop
     ._num:
-        xchg cx, ax
-        mov dx, 0x9093
+        xchg cx, ax ; move the constant value into cx to load into program bx
+        mov dx, 0x9093 ; xchg ax, bx; nop
         jmp mov_bx_action ; tail call
 
     ; mov bx, <ADDR>
@@ -244,7 +250,6 @@ _unary:
 ; binary expressions use ax for the LHS and cx for the RHS
 _expr:
     call _unary
-    ; db "MEOW"
     call next_token
     cmp ax, TokenKind.SEMICOLON
     je mov_bx_action.end

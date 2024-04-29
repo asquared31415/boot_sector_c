@@ -1,18 +1,22 @@
-int ax ;
+int _ax ;
+int cond ;
+int is_error ;
+
+int* program_addr ;
 
 int port ;
 int port_val ;
 int inb (){
-    ax = port ;
+    _ax = port ;
     asm(" .byte 146 ; .byte 236 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
-    port_val = ax ;
+    port_val = _ax ;
+    port_val = port_val & 255 ;
 }
 int outb (){
-    ax = port ;
+    _ax = port ;
     asm(" .byte 146 ; ");
-    ax = port_val ;
+    _ax = port_val ;
     asm(" .byte 238 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
-    port_val = ax ;
 }
 int c ;
 int state ;
@@ -25,7 +29,7 @@ int read_char (){
     }
     port = 1016 ;
     inb ();
-    c = ax ;
+    c = port_val ;
     return;
 }
 int print_char (){
@@ -40,10 +44,15 @@ int print_char (){
     outb ();
 }
 
+int _main_count ;
 int main (){
-    while( 1 == 1 ){
+    program_addr = 49152 ;
+    _main_count = 0 ;
+    while( _main_count < 10 ){
         read_char ();
-        print_char ();
+        * program_addr = c ;
+        program_addr = program_addr + 1 ;
+        _main_count = _main_count + 1 ;
     }
     asm(" .byte 235 ; .byte 254 ; ");
 }
