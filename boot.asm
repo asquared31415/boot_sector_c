@@ -250,9 +250,13 @@ _unary:
 ; binary expressions use ax for the LHS and cx for the RHS
 _expr:
     call _unary
-    call next_token
+    call next_token ; get the binop if it exists
     cmp ax, TokenKind.SEMICOLON
     je mov_bx_action.end
+
+    push ax
+    call ._binop_rhs ; codegen the rhs of the expr
+    pop ax ; restore the binop token
 
     ; NOTE: at this point, if it's not a semicolon, the token must be a binop token
     ; the binop tokens all have unique low bytes, so only that is compared
@@ -264,20 +268,16 @@ _expr:
         add bx, 3
         loop ._binop_loop
 
-    ; all non-semicolons are considered to be a condition
+    ; everything else is considered to be a condition
     ; conditions put a 1 in al if they are met, otherwise put a 0
-    xchg bx, ax ; save ax in bx for this call (the call saves it)
-    call ._binop_shared
-
+    xchg bx, ax
     ; this codegen works by emitting `cmp ax, cx; SETcc al`
     mov ax, 0xC839 ; cmp ax, cx (note: little endian)
     stosw
-
     mov al, 0x0F ; first byte of SETcc
     stosb
 
     ; the setCC byte sequence is 0F XX C0, where the XX controls the condition
-
     ; it turns out that bits 2..3 of the idents of the comparison operators are unique
     ; and easy to turn into an index
     sub bl, 2
@@ -298,11 +298,31 @@ _expr:
 
 
     ._binop_eq:
-        call ._binop_shared
         mov ax, word [bx + 1]
         .end_eat:
         stosw
         jmp next_token ; eat the ; after a binop (tail call)
+
+    ; sets up for the binop by getting the LHS into ax and handling the RHS and putting it in cx
+    ._binop_rhs:
+        ; the previous unary codegen put something in ax already, so save it
+        ; to cx, emit another unary and then swap back
+        mov al, 0x91 ; xchg cx, ax
+        stosb
+        push bp ; the addr of the ident in the program memory
+        push ax ; we need another xchg after this
+        call _unary ; now the first value is in cx, and the second is in ax
+        pop ax ; xchg cx, ax
+        stosb
+
+        ; if the lhs of a binop was a pointer, multiply the rhs by 4
+        pop ax
+        and al, 0x01
+        je ._no_ptr
+        mov ax, 0xE1D1 ; shl cx, 1
+        stosw
+        ._no_ptr:
+        ret
 
     ; NOTE: truncation to low byte is intentional, see note above
     ._arith_binop_codes:
@@ -321,29 +341,6 @@ _expr:
         db TokenKind.SHR & 0xFF
             db 0xD3, 0xE8 ; shr ax, cl
 
-    ; sets up for the binop by getting the LHS into ax and handling the RHS and putting it in cx
-    ._binop_shared:
-        ; the previous unary codegen put something in ax already, so save it
-        ; to cx, emit another unary and then swap back
-        mov al, 0x91 ; xchg cx, ax
-        stosb
-
-        push bp ; the addr of the ident in the program memory
-        push ax ; we need another xchg after this
-        push bx ; save the index into the binop codes
-        call _unary ; now the first value is in cx, and the second is in ax
-        pop bx
-        pop ax ; xchg cx, ax
-        stosb
-
-        ; if the lhs of a binop was a pointer, multiply the rhs by 4
-        pop ax
-        and al, 0x01
-        je ._no_ptr
-        mov ax, 0xE1D1 ; shl cx, 1
-        stosw
-        ._no_ptr:
-        ret
 
 ; si must hold the address of the current position in the text
 ; returns the 16 bit token value in ax and the entry in the ident map in cx
