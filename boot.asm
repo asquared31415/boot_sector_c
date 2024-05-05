@@ -22,7 +22,7 @@ main:
     mov al, 0x80
     out dx, al       ; Enable DLAB
 
-    mov dx, COM1_PORT
+    mov dl, COM1_PORT & 0xFF
     mov al, 0x01 ; 115200 baud
     out dx, al
 
@@ -43,11 +43,11 @@ main:
     mov di, si
 
     ._load_program:
-        mov dx, COM1_PORT + 5 ; status port
+        mov dl, (COM1_PORT + 5) & 0xFF ; status port
         in al, dx
         and al, 0x01 ; bit 0 is set if there is a character ready
         jz ._load_program
-        mov dx, COM1_PORT ; data port
+        mov dl, (COM1_PORT & 0xFF) ; data port
         in al, dx
         stosb
         or al, al ; exit when a 0x00 byte is read
