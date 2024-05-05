@@ -9,6 +9,13 @@ main:
     mov ds, ax ; ds is used by lods/stos
 
     ; TODO: probably need to zero out the ident->memory map
+    ; this takes nine bytes
+    ; mov cx, 0xFFFF ; |
+    ; inc ecx        ; | write 0x1_0000 words = 0x2_0000 bytes
+    ; xor di, di ; |
+    ; dec di     ; |
+    ; inc edi    ; | start pointer is 0x1_0000
+    ; a32 rep stosw
 
     ; Initialize serial
     mov dx, COM1_PORT + 3
@@ -254,92 +261,81 @@ _expr:
     cmp ax, TokenKind.SEMICOLON
     je mov_bx_action.end
 
-    push ax
-    call ._binop_rhs ; codegen the rhs of the expr
-    pop ax ; restore the binop token
+    ; codegen the RHS unary and get the LHS in ax and RHS in cx
+    push bp ; the addr of the ident in the program memory
+    push ax ; store the binop ident
+    ; the previous unary codegen put something in ax already, so save it
+    ; to cx, emit another unary and then swap back
+    mov al, 0x91 ; xchg cx, ax
+    stosb
+    push ax ; we need another xchg after this
+    call _unary ; now the first value is in cx, and the second is in ax
+    pop ax ; xchg cx, ax
+    stosb
+
+    pop ax
+    pop dx ; move addr to dx
 
     ; NOTE: at this point, if it's not a semicolon, the token must be a binop token
     ; the binop tokens all have unique low bytes, so only that is compared
     mov bx, ._arith_binop_codes
-    mov cx, 7
+    mov cx, 11
     ._binop_loop:
         cmp al, byte [bx]
         je ._binop_eq
         add bx, 3
         loop ._binop_loop
-
-    ; everything else is considered to be a condition
-    ; conditions put a 1 in al if they are met, otherwise put a 0
-    xchg bx, ax
-    ; this codegen works by emitting `cmp ax, cx; SETcc al`
-    mov ax, 0xC839 ; cmp ax, cx (note: little endian)
-    stosw
-    mov al, 0x0F ; first byte of SETcc
-    stosb
-
-    ; the setCC byte sequence is 0F XX C0, where the XX controls the condition
-    ; it turns out that bits 2..3 of the idents of the comparison operators are unique
-    ; and easy to turn into an index
-    sub bl, 2
-    and bx, 0x0C
-    shr bl, 2
-    mov al, byte [bx + ._setcc_byte]
-
-    mov ah, 0xC0 ; the last byte of the SETcc
-    jmp .end_eat
-
-    ; indexed by some bits in the last nibble of the ident
-    ; yes this is cursed
-    ._setcc_byte:
-        db 0x9E ; setle
-        db 0x95 ; setne
-        db 0x9C ; setl
-        db 0x94 ; sete
-
-
+    
+    ; NOTE: fallthrough means the program was invalid
     ._binop_eq:
+        cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on scalars, relative to 0x7C00 is the same though
+        jb ._no_cond
+        mov ax, 0xC839 ; cmp ax, cx (note: little endian)
+        stosw
+        mov al, 0x0F ; first byte of SETcc
+        stosb
+        ._no_cond:
         mov ax, word [bx + 1]
+        stosw
+        rcr dl, 1 ; special handling for pointers
+        jnc ._no_ptr
+        cmp bl, (._plus_bx_ptr - $$) & 0xFF ; if +, emit another add ax, cx to add cx twice
+        je .end_eat
+        cmp bl, (._minus_bx_ptr - $$) & 0xFF ; for -, emit a shr ax, 1
+        jne ._no_ptr
+        mov ax, 0xE8D1
         .end_eat:
         stosw
-        jmp next_token ; eat the ; after a binop (tail call)
-
-    ; sets up for the binop by getting the LHS into ax and handling the RHS and putting it in cx
-    ._binop_rhs:
-        ; the previous unary codegen put something in ax already, so save it
-        ; to cx, emit another unary and then swap back
-        mov al, 0x91 ; xchg cx, ax
-        stosb
-        push bp ; the addr of the ident in the program memory
-        push ax ; we need another xchg after this
-        call _unary ; now the first value is in cx, and the second is in ax
-        pop ax ; xchg cx, ax
-        stosb
-
-        ; if the lhs of a binop was a pointer, multiply the rhs by 4
-        pop ax
-        and al, 0x01
-        je ._no_ptr
-        mov ax, 0xE1D1 ; shl cx, 1
-        stosw
         ._no_ptr:
-        ret
+        jmp next_token ; eat the ; after a binop (tail call)
 
     ; NOTE: truncation to low byte is intentional, see note above
     ._arith_binop_codes:
+        ._plus_bx_ptr:
         db TokenKind.PLUS & 0xFF
             db 0x01, 0xC8 ; add ax, cx
+        ._minus_bx_ptr:
+        db TokenKind.MINUS & 0xFF
+            db 0x29, 0xC8 ; sub ax, cx
         db TokenKind.OR & 0xFF
             db 0x09, 0xC8 ; or  ax, cx
         db TokenKind.AND & 0xFF
             db 0x21, 0xC8 ; and ax, cx
-        db TokenKind.MINUS & 0xFF
-            db 0x29, 0xC8 ; sub ax, cx
         db TokenKind.XOR & 0xFF
             db 0x31, 0xC8 ; xor ax, cx
         db TokenKind.SHL & 0xFF
             db 0xD3, 0xE0 ; shl ax, cl
         db TokenKind.SHR & 0xFF
             db 0xD3, 0xE8 ; shr ax, cl
+        ._binop_cmp_start:
+        db TokenKind.EQUAL_EQUAL & 0xFF
+            db 0x94, 0xC0 ; sete last two bytes
+        db TokenKind.NOT_EQUAL & 0xFF
+            db 0x95, 0xC0 ; setne last two bytes
+        db TokenKind.LESS & 0xFF
+            db 0x9C, 0xC0 ; setl last two bytes
+        db TokenKind.LESS_EQUAL & 0xFF
+            db 0x9E, 0xC0 ; setle last two bytes
 
 
 ; si must hold the address of the current position in the text
