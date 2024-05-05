@@ -9,13 +9,12 @@ main:
     mov ds, ax ; ds is used by lods/stos
 
     ; TODO: probably need to zero out the ident->memory map
-    ; this takes nine bytes
-    ; mov cx, 0xFFFF ; |
-    ; inc ecx        ; | write 0x1_0000 words = 0x2_0000 bytes
+    ; this takes twelve bytes :c
+    ; mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
     ; xor di, di ; |
     ; dec di     ; |
     ; inc edi    ; | start pointer is 0x1_0000
-    ; a32 rep stosw
+    ; a32 rep stosd
 
     ; Initialize serial
     mov dx, COM1_PORT + 3
@@ -101,7 +100,6 @@ _asm:
         jmp ._loop
 
 _block:
-; db "--"
     .stmt_loop:
         call next_token
         cmp ax, TokenKind.CLOSE_BRACE
@@ -158,8 +156,8 @@ assign_expr_common:
 _while:
     push di ; store the current position to loop to
     call _if_state ; generate the condition and block
-    ; bx holds the address of the `if`'s jump target, adjust that forward by 3, which is the size of the loop jmp
-    add word [bx], 3
+    ; bx-2 holds the address of the `if`'s jump target, adjust that forward by 3, which is the size of the loop jmp
+    add word [bx - 2], 3
     pop dx
     sub dx, di
     sub dx, 3 ; size of the JMP rel16off
@@ -174,20 +172,17 @@ _if_state:
     stosw
     mov ax, 0x840F ; start of JE rel16off
     stosw
-    push di ; save the location of the jump target to fixup later
     stosw ; skip 2 bytes (we will overwrite them later)
+    push di ; save the location of the jump target +2 to fixup later
 
     ; codegen the block
     call _block ; this also eats the } at the end of the statement
 
     ; fixup jump location
     mov ax, di
-    pop bx     ; start of jump target
+    pop bx     ; end of JE addr
     sub ax, bx ; jump target is relative to the end of the JE
-    dec ax
-    dec ax
-
-    mov word [bx], ax
+    mov word [bx - 2], ax ; target is 2 bytes back
     ret
 
 ; emits a sequence
@@ -229,8 +224,7 @@ _unary:
 
     ; something is an ident if it has a non-zero entry in the ident map
     ; otherwise it's considered to be a number
-    or cx, cx
-    jz ._num
+    jcxz ._num
 
     ._ident:
         mov bp, cx
@@ -268,9 +262,8 @@ _expr:
     ; to cx, emit another unary and then swap back
     mov al, 0x91 ; xchg cx, ax
     stosb
-    push ax ; we need another xchg after this
     call _unary ; now the first value is in cx, and the second is in ax
-    pop ax ; xchg cx, ax
+    mov al, 0x91 ; xchg cx, ax
     stosb
 
     pop ax
@@ -285,7 +278,7 @@ _expr:
         je ._binop_eq
         add bx, 3
         loop ._binop_loop
-    
+
     ; NOTE: fallthrough means the program was invalid
     ._binop_eq:
         cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on scalars, relative to 0x7C00 is the same though
@@ -341,7 +334,7 @@ _expr:
 ; si must hold the address of the current position in the text
 ; returns the 16 bit token value in ax and the entry in the ident map in cx
 ; increments si to the start of the next token
-; if a token was not found, sets si to 0x0000
+; if a token was not found, jumps to main
 ; clobbers bx
 next_token:
     ; al holds the current byte of the program, and ah must be 0 for the 16 bit addition
