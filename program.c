@@ -44,13 +44,24 @@ int print_char (){
     outb ();
 }
 
+int _main_eof ;
 int _main_count ;
 int main (){
     program_addr = 49152 ;
-    _main_count = 0 ;
-    while( _main_count < 10 ){
+    _main_eof = 0 ;
+    while( _main_eof == 0 ){
         read_char ();
+        if( c == 0 ){
+            _main_eof = 1 ;
+        }
         * program_addr = c ;
+        program_addr = program_addr + 1 ;
+    }
+    program_addr = 49152 ;
+    _main_count = 0 ;
+    while( _main_count < 100 ){
+        c = * program_addr ;
+        print_char ();
         program_addr = program_addr + 1 ;
         _main_count = _main_count + 1 ;
     }
