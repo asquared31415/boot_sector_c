@@ -5,16 +5,16 @@ org 0x7C00 ; BIOS drops us at this address
 
 main:
     ; segments
-    xor ax, ax
-    mov ds, ax ; ds is used by lods/stos
+    xor di, di
+    mov ds, di ; ds is used by lods
+    mov es, di ; es used by stos
 
-    ; TODO: probably need to zero out the ident->memory map
-    ; this takes twelve bytes :c
-    ; mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
-    ; xor di, di ; |
-    ; dec di     ; |
-    ; inc edi    ; | start pointer is 0x1_0000
-    ; a32 rep stosd
+    ; clear ident->addr map
+    xor ax, ax
+    mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
+    dec di     ; |
+    inc edi    ; | start pointer is 0x1_0000
+    a32 rep stosd
 
     ; Initialize serial
     mov dx, COM1_PORT + 3
@@ -63,9 +63,9 @@ compiler_entry:
         stosb          ; | align to 2 bytes
         and di, 0xFFFE ; | (note: this is 3 bytes, assembler shortens it)
         call next_token
-        cmp ax, TokenKind.INT_PTR
-        jne ._no_ptr
-        stosb ; increment by 1 to mark as int ptr
+        ; cmp ax, TokenKind.INT_PTR
+        ; jne ._no_ptr
+        ; stosb ; increment by 1 to mark as int ptr
         ._no_ptr:
         ; get the name of the variable or function
         call next_token
@@ -272,14 +272,12 @@ _expr:
     ; NOTE: at this point, if it's not a semicolon, the token must be a binop token
     ; the binop tokens all have unique low bytes, so only that is compared
     mov bx, ._arith_binop_codes
-    mov cx, 11
     ._binop_loop:
         cmp al, byte [bx]
         je ._binop_eq
         add bx, 3
-        loop ._binop_loop
+        jmp ._binop_loop ; it's UB to not have a binop here, so just loop forever
 
-    ; NOTE: fallthrough means the program was invalid
     ._binop_eq:
         cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on scalars, relative to 0x7C00 is the same though
         jb ._no_cond
@@ -381,18 +379,6 @@ next_token:
     ; of 0x1_0000, if you think about it
     mov cx, word gs:[bx]
     ret
-
-; print_char:
-;     push ax
-; .wait:
-;     mov dx, COM1_PORT + 5
-;     in al, dx
-;     and al, 0x20
-;     jz .wait
-;     mov dx, COM1_PORT
-;     pop ax
-;     out dx, al
-;     ret
 
 TIMES 0x1BE-($-$$) db 0x00
 

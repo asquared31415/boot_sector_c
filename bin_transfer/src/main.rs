@@ -119,7 +119,7 @@ fn main() -> Result<()> {
         }
 
         let mut cmd = Command::new("socat");
-        cmd.args(["-,rawer,echo=0", socat_target.as_str()]);
+        cmd.args(["-,raw", socat_target.as_str()]);
 
         // Does not return on success
         return Err(Report::from(cmd.exec()));
