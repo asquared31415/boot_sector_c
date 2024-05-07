@@ -63,9 +63,9 @@ compiler_entry:
         stosb          ; | align to 2 bytes
         and di, 0xFFFE ; | (note: this is 3 bytes, assembler shortens it)
         call next_token
-        ; cmp ax, TokenKind.INT_PTR
-        ; jne ._no_ptr
-        ; stosb ; increment by 1 to mark as int ptr
+        cmp al, (TokenKind.INT_PTR & 0xFF) ; token can only be int, int*, or void here
+        jne ._no_ptr
+        stosb ; increment by 1 to mark as int ptr
         ._no_ptr:
         ; get the name of the variable or function
         call next_token
@@ -75,7 +75,7 @@ compiler_entry:
         ; to distinguish a function and a variable declaration, look for a `(){` following it.
         ; functions MUST have those characters while variables MUST have a `;`
         call next_token
-        cmp ax, TokenKind.FN_ARGS
+        cmp al, (TokenKind.FN_ARGS & 0xFF) ; token can only be a (){ or ;, which have different low bytes
         jne ._var
 
         call _block
