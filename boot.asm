@@ -382,20 +382,9 @@ next_token:
 
 TIMES 0x1BE-($-$$) db 0x00
 
-; Set up partition table
-; This is because the hardware in use needs this to dectect as a "USB key"
-
-; Starts at the first sector, is 1 sectors long
-%assign PART0_LBA_START 0
-%assign PART0_LBA_SIZE  1
-
-; Starts after the boot partition, end at the end of the first cylinder, sector 7688.
-%assign PART1_LBA_START 1
-%assign PART1_LBA_SIZE  7687
-
-; ==============================================================================
-; actual impl here, but above this is the Abstraction that's all nice and fuzzy
-; ==============================================================================
+; ====================================================================
+; PARTITION TABLE ABSTRACTIONS (see next section for actual tables)
+; ====================================================================
 
 ; Geometry of the target disk.
 ; The USB that is in use has 1015 cylinders, 124 heads, and 62 sectors and contains 7810176 sectors total.
@@ -417,22 +406,24 @@ TIMES 0x1BE-($-$$) db 0x00
     db %%cylinder_val
 %endmacro
 
-part0:
-.attributes: db 0x80 ; Active boot partition.
-.CHS_start:  LBA_TO_CHS_BYTES PART0_LBA_START
-.system_id:  db 0x00
-.CHS_end:    LBA_TO_CHS_BYTES PART0_LBA_START + PART0_LBA_SIZE
-.LBA_start:  dd PART0_LBA_START
-.LBA_count:  dd PART0_LBA_SIZE
+%macro PART 3
+    %%.attributes: db %1
+    %%.CHS_start: LBA_TO_CHS_BYTES %2
+    %%.system_id: db 0x00
+    %%.CHS_end: LBA_TO_CHS_BYTES %eval(%2 + %3)
+    %%.LBA_START: dd %2
+    %%.LBA_COUNT: dd %3
+%endmacro
 
-part1:
-.attributes: db 0x00 ; Non-active
-.CHS_start:  LBA_TO_CHS_BYTES PART1_LBA_START
-.system_id:  db 0x00
-.CHS_end:    LBA_TO_CHS_BYTES PART1_LBA_START + PART1_LBA_SIZE
-.LBA_start:  dd PART1_LBA_START
-.LBA_count:  dd PART1_LBA_SIZE
+; ====================================================================
+; PARTITION TABLES
+; ====================================================================
+; NOTE: the first sector of the device does not need to be within a partition
 
+; FAT16 partition
+part0: PART 0x00,0x01,0x7F
+
+part1: TIMES 16 db 0x00
 part2: TIMES 16 db 0x00
 part3: TIMES 16 db 0x00
 
