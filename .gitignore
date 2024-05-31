@@ -4,6 +4,7 @@ INTERESTED.txt
 
 # binary artifacts
 out/
+mnt/
 qemu_img
 
 # logs
