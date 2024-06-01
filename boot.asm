@@ -12,6 +12,7 @@ main:
     ; clear ident->addr map
     xor ax, ax
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
+    push cx    ; 0x8000 also happens to be PROGRAM_MEM_START
     dec di     ; |
     inc edi    ; | start pointer is 0x1_0000
     a32 rep stosd
@@ -54,7 +55,7 @@ main:
         jnz ._load_program
 
     ; di contains the current index to write to
-    mov di, PROGRAM_MEM_START
+    pop di ; PROGRAM_MEM_START pushed earlier
 
     ; fallthrough, returns to end
     ; db "--"
@@ -92,8 +93,8 @@ compiler_entry:
 _asm:
     ._loop:
         call next_token ; eat the .byte or find end
-        cmp ax, TokenKind.ASM_END
-        je mov_bx_action.end  ; ret
+        cmp al, (TokenKind.ASM_END & 0xFF) ; since the token must be .byte or ");, we can only compare one byte
+        je _block.stmt_loop
         call next_token ; get the value
         stosb ; write the byte
         call next_token ; eat the ;
@@ -103,16 +104,14 @@ _block:
     .stmt_loop:
         call next_token
         cmp ax, TokenKind.CLOSE_BRACE
-        jne .not_end
-        ret
-        .not_end:
+        je ._ret
+        cmp ax, TokenKind.ASM_START
+        je _asm ; JUMPS (not return) to stmt_loop
         push .stmt_loop
         cmp ax, TokenKind.IF_START
         je _if_state ; returns to stmt_loop
         cmp ax, TokenKind.WHILE_START
         je _while ; returns to stmt_loop
-        cmp ax, TokenKind.ASM_START
-        je _asm ; returns to stmt_loop
         cmp ax, TokenKind.RETURN
         jne ._next0
         mov dl, 0xC3
@@ -143,6 +142,7 @@ _block:
 
         ._fn:
         mov dx, 0xD3FF ; call bx (note: little endian)
+        ._ret:
         ret ; returns to mov_bx_action, which returns to top of loop
 
 ; cx contains the addr to write to on call
@@ -279,7 +279,7 @@ _expr:
         jmp ._binop_loop ; it's UB to not have a binop here, so just loop forever
 
     ._binop_eq:
-        cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on scalars, relative to 0x7C00 is the same though
+        cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on non-scalars, relative to 0x7C00 is the same though
         jb ._no_cond
         mov ax, 0xC839 ; cmp ax, cx (note: little endian)
         stosw
@@ -367,12 +367,11 @@ next_token:
 
     ; set gs to correctly address the highest nibble of the index table
     ; this is either 0x1000 for the low half, or 0x2000 for the high half
-    xor cx, cx ; clears the carry to ensure a 0 gets rotated in and makes sure
-               ; that cx is 0 if the high bit of bx is 0
-    rcl bx, 1  ; rotate the high bit of bx into the carry register
-    rcl cx, 1
-    inc cl     ; | cl holds 2 if the high half is needed, 1 otherwise
-    shl cx, 12 ; turn the 1 or 2 in cl into 0x1000 or 0x2000 in dx
+    xor cx, cx   ; clears the carry to ensure a 0 gets rotated in and makes sure
+                 ; that cx is 0 if the high bit of bx is 0
+    rcl bx, 1    ; rotate the high bit of bx into the carry register
+    rcr ch, 4    ; cx holds 0x0000 or 0x1000
+    add ch, 0x10 ; 0x1000 or 0x2000
     mov gs, cx
     ; we don't restore bx here, because we need to multiply by 2 anyway, the rcl did that
     ; really this whole thing just forms a 17 bit address with a constant offset
