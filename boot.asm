@@ -291,11 +291,10 @@ _expr:
         rcr dl, 1 ; special handling for pointers
         jnc ._no_ptr
         cmp bl, (._plus_bx_ptr - $$) & 0xFF ; if +, emit another add ax, cx to add cx twice
-        je .end_eat
+        stosw
         cmp bl, (._minus_bx_ptr - $$) & 0xFF ; for -, emit a shr ax, 1
         jne ._no_ptr
         mov ax, 0xE8D1
-        .end_eat:
         stosw
         ._no_ptr:
         jmp next_token ; eat the ; after a binop (tail call)

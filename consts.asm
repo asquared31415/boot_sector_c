@@ -15,6 +15,7 @@
     TokenKind:
         .INT:         equ 0x18F4 ; int
         .INT_PTR:     equ 0xF982 ; int*
+        .VOID:        equ 0x2C7A ; void
 
         .OPEN_PAREN:  equ 0xFFF8 ; (
         .CLOSE_PAREN: equ 0xFFF9 ; )
