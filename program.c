@@ -134,6 +134,10 @@ void read_byte_buf (){
     buf = buf + 1 ;
 }
 
+
+int* local_stack ;
+
+
 int start_sector ;
 int first_data_offset ;
 
@@ -193,6 +197,7 @@ int main (){
     while( delay < 65000 ){
         delay = delay + 1 ;
     }
+    // this is a fun comment :3
 
     read_root ();
 

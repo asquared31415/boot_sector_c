@@ -108,16 +108,23 @@ _block:
         cmp ax, TokenKind.ASM_START
         je _asm ; JUMPS (not return) to stmt_loop
         push .stmt_loop
+        cmp ax, TokenKind.COMMENT
+        jne ._no_comment
+        ._inc:
+            lodsb
+            cmp al, 0x0A
+            jne ._inc
+            ._ret:
+            ret
+        ._no_comment:
         cmp ax, TokenKind.IF_START
         je _if_state ; returns to stmt_loop
         cmp ax, TokenKind.WHILE_START
         je _while ; returns to stmt_loop
         cmp ax, TokenKind.RETURN
-        jne ._next0
         mov dl, 0xC3
-        jmp mov_bx_action.shared ; write C3 XX on return, tail call, returns to caller
+        je mov_bx_action.shared ; write C3 XX, returns to stmt_loop
 
-        ._next0:
         cmp ax, TokenKind.STAR ; everything that starts with a * is `*ptr = expr`
         jne ._next1
 
@@ -130,19 +137,15 @@ _block:
 
         ._next1:
         push mov_bx_action
-        push cx
+        push cx ; save the used ident/function
         ; if the statement is not an if, while, asm, return, or `*ptr = expr`, it's either an assignment or a function call
         ; this requires looking at the next token to see if it is `();` or `=`.
         call next_token
         pop cx
         cmp ax, TokenKind.FN_CALL
-        je ._fn
+        jne assign_expr_common ; returns to stmt_loop
 
-        jmp assign_expr_common ; returns to stmt_loop
-
-        ._fn:
         mov dx, 0xD3FF ; call bx (note: little endian)
-        ._ret:
         ret ; returns to mov_bx_action, which returns to top of loop
 
 ; cx contains the addr to write to on call
@@ -290,22 +293,23 @@ _expr:
         stosw
         rcr dl, 1 ; special handling for pointers
         jnc ._no_ptr
-        cmp bl, (._plus_bx_ptr - $$) & 0xFF ; if +, emit another add ax, cx to add cx twice
-        stosw
-        cmp bl, (._minus_bx_ptr - $$) & 0xFF ; for -, emit a shr ax, 1
+        cmp al, ._plus_byte_1 ; if +, emit another add ax, cx to add cx twice
+        je ._end_eat
+        cmp al, ._minus_byte_1 ; for -, emit a shr ax, 1
         jne ._no_ptr
         mov ax, 0xE8D1
+        ._end_eat:
         stosw
         ._no_ptr:
         jmp next_token ; eat the ; after a binop (tail call)
 
     ; NOTE: truncation to low byte is intentional, see note above
     ._arith_binop_codes:
-        ._plus_bx_ptr:
         db TokenKind.PLUS & 0xFF
+        ._plus_byte_1:
             db 0x01, 0xC8 ; add ax, cx
-        ._minus_bx_ptr:
         db TokenKind.MINUS & 0xFF
+        ._minus_byte_1:
             db 0x29, 0xC8 ; sub ax, cx
         db TokenKind.OR & 0xFF
             db 0x09, 0xC8 ; or  ax, cx

@@ -13,6 +13,8 @@
 
     ; TOKENS
     TokenKind:
+        .COMMENT:     equ 0xFFF5 ; //
+
         .INT:         equ 0x18F4 ; int
         .INT_PTR:     equ 0xF982 ; int*
         .VOID:        equ 0x2C7A ; void
