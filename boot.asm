@@ -283,6 +283,7 @@ _expr:
 
     ._binop_eq:
         cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on non-scalars, relative to 0x7C00 is the same though
+        pushf ; we need this condition later too
         jb ._no_cond
         mov ax, 0xC839 ; cmp ax, cx (note: little endian)
         stosw
@@ -291,14 +292,21 @@ _expr:
         ._no_cond:
         mov ax, word [bx + 1]
         stosw
-        rcr dl, 1 ; special handling for pointers
+        popf         ; restore flags from comparison against binop status
+        jnb ._no_ptr ; no need to adjust if the binop is a condition
+        rcr dl, 1 ; special handling for lhs pointers
         jnc ._no_ptr
-        cmp al, ._plus_byte_1 ; if +, emit another add ax, cx to add cx twice
-        je ._end_eat
-        cmp al, ._minus_byte_1 ; for -, emit a shr ax, 1
-        jne ._no_ptr
-        mov ax, 0xE8D1
-        ._end_eat:
+
+        ; for ptr + int, emit another add ax, cx
+        ; NOTE: ptr + <non int> does not exist, case ignored
+        ; for ptr - int, emit another sub ax, cx
+        ; for ptr - ptr, emit a shr ax, 1 on the final result
+        ; for other ops, no adjustment is needed
+
+        rcr bp, 1 ; if the RHS is also a pointer, it's ptr - ptr
+        jnc ._emit_end ; ptr <op> int, emit the operation twice
+        mov ax, 0xE8D1 ; for ptr - ptr, emit a shr ax, 1 instead
+        ._emit_end:
         stosw
         ._no_ptr:
         jmp next_token ; eat the ; after a binop (tail call)
@@ -306,10 +314,8 @@ _expr:
     ; NOTE: truncation to low byte is intentional, see note above
     ._arith_binop_codes:
         db TokenKind.PLUS & 0xFF
-        ._plus_byte_1:
             db 0x01, 0xC8 ; add ax, cx
         db TokenKind.MINUS & 0xFF
-        ._minus_byte_1:
             db 0x29, 0xC8 ; sub ax, cx
         db TokenKind.OR & 0xFF
             db 0x09, 0xC8 ; or  ax, cx
@@ -379,6 +385,7 @@ next_token:
     ; we don't restore bx here, because we need to multiply by 2 anyway, the rcl did that
     ; really this whole thing just forms a 17 bit address with a constant offset
     ; of 0x1_0000, if you think about it
+MAGIC_SIGNATURE:
     mov cx, word gs:[bx]
     ret
 
