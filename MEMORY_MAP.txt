@@ -9,3 +9,16 @@
 0x0_8000-0x0_BFFF: compiler program memory
 0x0_C000-0x0_FFFF: unallocated RAM
 0x1_0000-0x2_FFFF: compiler ident->mem table
+
+// ONCE IN COMPILER:
+0x0_0000-0x0_04FF: BIOS (DO NOT USE)
+0x0_0500-0x0_0FFF: unallocated RAM
+0x0_0F00-0x0_0FFF: fs temp buffers
+0x0_1000-0x0_5FFF: FAT16 root data strutures
+0x0_6000-0x0_61FF: drive read/write sector buffer
+0x0_6200-0x0_6DFF: unallocated
+0x0_6E00-0x0_7BFF: stack pointer is somewhere in here-ish
+0x0_7C00-0x0_7FFF: local data stack (this probably needs to be expanded)
+0x0_8000-0x0_BFFF: compiler program (DO NOT EDIT)
+0x0_C000-0x0_FFFF: unallocated RAM
+0x1_0000-

@@ -1,0 +1,12 @@
+line editor keeps a single large buffer of text
+  this is done to reduce fragmentation because most lines aren't a full 80 characters
+  a linked list of 80 character lines would waste a ton of memory
+
+to keep track of lines, a linked list of metadata exists.
+each entry in this list contains (in order):
+ - a 16 bit pointer to the previous line entry, or NULL
+ - a 16 bit pointer to the next line entry, or NULL
+ - a 24 bit far pointer to the start of the referenced line
+ - a 8 bit metadata value composed of:
+   - bits 0..=6: the length of the line
+   - bit      7: set if the line is free, clear if it is in use

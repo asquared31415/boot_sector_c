@@ -1,16 +1,6 @@
 // INFINITE LOOP (EB FE - jmp $)
 asm(" .byte 235 ; .byte 254 ; ");
 
-int* memset_ptr ;
-int memset_word ;
-int memset_count ;
-void memset (){
-    while( memset_count > 0 ){
-        * memset_ptr = memset_word ;
-        memset_ptr = memset_ptr + 1 ;
-    }
-}
-
 int* _init_fat_bpb_ptr ;
 void init_fat_bpb (){
     _init_fat_bpb_ptr = 28672 ;
