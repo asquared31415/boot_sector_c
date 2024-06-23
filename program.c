@@ -204,7 +204,7 @@ void print_hex (){
   }
 }
 
-int print_string_src ;
+int* print_string_src ;
 int _print_string_byte ;
 void print_string (){
   // prints a NULL terminated string to the serial output
@@ -214,7 +214,9 @@ void print_string (){
   while( _print_string_byte != 0 ){
     c = _print_string_byte ;
     print_char ();
-    print_string_src = print_string_src + 1 ;
+    // hack to get a 1 byte offset
+    _print_string_byte = print_string_src + 1 ;
+    print_string_src = _print_string_byte ;
     _print_string_byte = * print_string_src & 255 ;
   }
 }
@@ -335,6 +337,7 @@ int* dirent_file_name ;
 
 int* _find_file_name_ptr ;
 int* _find_file_search_ptr ;
+int _find_file_count ;
 void find_file (){
   // ARGUMENTS: pointer to 12 bytes that contain the null terminated name of the file
   // RETURNS: pointer to the start of the fs metadata block that matched, or 0
@@ -343,8 +346,9 @@ void find_file (){
   _find_file_name_ptr = local_val ;
 
   _find_file_search_ptr = fat16_root_data ;
-  // 0x80 entries times 0x10 bytes per entry means the end of the fs data is at 0x5FFF
-  while( _find_file_search_ptr < 24575 ){
+  _find_file_count = 0 ;
+  // 0x80 entries in the root dir
+  while( _find_file_count < 128 ){
     // search for a fs entry with the same name
     strcmp_lhs = _find_file_name_ptr ;
     strcmp_rhs = _find_file_search_ptr ;
@@ -357,6 +361,7 @@ void find_file (){
 
     // increment to the next fs entry (16 bytes each)
     _find_file_search_ptr = _find_file_search_ptr + 8 ;
+    _find_file_count = _find_file_count + 1 ;
   }
 
   // if we got here, no file found

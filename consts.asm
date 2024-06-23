@@ -7,9 +7,9 @@
     COM1_PORT: equ 0x03F8 ; COM1 port
 
     ; the location where the boot sector loads the program into
-    PROGRAM_BUFFER: equ 0x1000
+    PROGRAM_BUFFER: equ 0x8000
 
-    PROGRAM_MEM_START: equ 0x8000
+    PROGRAM_MEM_START: equ 0x1000
 
     ; TOKENS
     TokenKind:

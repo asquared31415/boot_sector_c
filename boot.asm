@@ -12,7 +12,6 @@ main:
     ; clear ident->addr map
     xor ax, ax
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
-    push cx    ; 0x8000 also happens to be PROGRAM_MEM_START
     dec di     ; |
     inc edi    ; | start pointer is 0x1_0000
     a32 rep stosd
@@ -55,7 +54,7 @@ main:
         jnz ._load_program
 
     ; di contains the current index to write to
-    pop di ; PROGRAM_MEM_START pushed earlier
+    mov di, PROGRAM_MEM_START
 
     ; fallthrough, returns to end
     ; db "--"
