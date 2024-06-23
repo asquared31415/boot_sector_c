@@ -138,13 +138,13 @@ void strcmp (){
 
 int port ;
 int port_val ;
-int inb (){
+void inb (){
     _ax = port ;
     asm(" .byte 146 ; .byte 236 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
     port_val = _ax ;
     port_val = port_val & 255 ;
 }
-int outb (){
+void outb (){
     _ax = port ;
     asm(" .byte 146 ; ");
     _ax = port_val ;
@@ -152,7 +152,7 @@ int outb (){
 }
 int c ;
 int state ;
-int read_char (){
+void read_char (){
     state = 0 ;
     while( state == 0 ){
         // 0x3FD - status
@@ -166,7 +166,7 @@ int read_char (){
     c = port_val ;
     return;
 }
-int print_char (){
+void print_char (){
     state = 0 ;
     while( state == 0 ){
         // 0x3FD - status
@@ -192,6 +192,10 @@ void print_hex (){
     // 0xF000
     _print_hex_nibble = print_hex_val & 61440 ;
     _print_hex_nibble = _print_hex_nibble >> 12 ;
+    // adjust letters forward into the letter region
+    if( 10 <= _print_hex_nibble ){
+      _print_hex_nibble = _print_hex_nibble + 7 ;
+    }
     // shift from value into digit range
     c = _print_hex_nibble + 48 ;
     print_char ();
@@ -221,16 +225,16 @@ int max_sector_num ;
 int max_cylinder_num ;
 int _get_drive_stats_tmp ;
 void get_drive_stats (){
-    asm(" .byte 180 ; .byte 8 ; .byte 178 ; .byte 128 ; .byte 205 ; .byte 19 ; .byte 81 ; .byte 82 ; ");
-    asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
-    max_head_num = _ax & 255 ;
-    asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
-    max_cylinder_num = _ax & 192 ;
-    max_cylinder_num = max_cylinder_num << 8 ;
-    _get_drive_stats_tmp = _ax & 65280 ;
-    _get_drive_stats_tmp = _get_drive_stats_tmp >> 8 ;
-    max_cylinder_num = max_cylinder_num | _get_drive_stats_tmp ;
-    max_sector_num = _ax & 63 ;
+  asm(" .byte 180 ; .byte 8 ; .byte 178 ; .byte 128 ; .byte 205 ; .byte 19 ; .byte 81 ; .byte 82 ; ");
+  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
+  max_head_num = _ax & 255 ;
+  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
+  max_cylinder_num = _ax & 192 ;
+  max_cylinder_num = max_cylinder_num << 8 ;
+  _get_drive_stats_tmp = _ax & 65280 ;
+  _get_drive_stats_tmp = _get_drive_stats_tmp >> 8 ;
+  max_cylinder_num = max_cylinder_num | _get_drive_stats_tmp ;
+  max_sector_num = _ax & 63 ;
 }
 
 int int_div_lhs ;
@@ -244,6 +248,18 @@ void int_div (){
         int_div_quot = int_div_quot + 1 ;
     }
     int_div_rem = int_div_lhs ;
+}
+
+int mul_lhs ;
+int mul_rhs ;
+int mul_result ;
+void int_mul (){
+  // multiplies two 16 bit numbers, with wrapping
+  mul_result = 0 ;
+  while( 0 < mul_rhs ){
+    mul_result = mul_result + mul_lhs ;
+    mul_rhs = mul_rhs - 1 ;
+  }
 }
 
 int lba_to_chs_lba ;
@@ -266,41 +282,50 @@ void lba_to_chs (){
     lba_to_chs_c = int_div_quot ;
 }
 
-int load_sector_lba ;
-int* load_sector_buf ;
-int _load_sector_ax ;
-int _load_sector_cx ;
-int _load_sector_dx ;
-int _load_sector_tmp ;
-void load_sector (){
-    // loads a sector from disk
-    // ARGUMENTS: <GLOBAL> load_sector_lba - the linear address of the sector to load
-    // RETURNS: <GLOBAL> load_sector_buf - points to the loaded data
-    _load_sector_ax = 513 ;
-    lba_to_chs_lba = load_sector_lba ;
-    lba_to_chs ();
-    _load_sector_cx = lba_to_chs_c & 255 ;
-    _load_sector_cx = _load_sector_cx << 8 ;
-    _load_sector_tmp = lba_to_chs_c >> 2 ;
-    _load_sector_tmp = _load_sector_tmp & 192 ;
-    _load_sector_tmp = lba_to_chs_s | _load_sector_tmp ;
-    _load_sector_cx = _load_sector_cx | _load_sector_tmp ;
-    _load_sector_dx = lba_to_chs_h << 8 ;
-    _load_sector_dx = _load_sector_dx | 128 ;
-    // 0x6000
-    load_sector_buf = 24576 ;
-    _ax = load_sector_buf ;
-    asm(" .byte 80 ; ");
-    _ax = _load_sector_dx ;
-    asm(" .byte 80 ; ");
-    _ax = _load_sector_cx ;
-    asm(" .byte 80 ; ");
-    _ax = _load_sector_ax ;
-    asm(" .byte 80 ; ");
-    asm(" .byte 88 ; .byte 89 ; .byte 90 ; .byte 91 ; .byte 205 ; .byte 19 ; ");
+int io_lba ;
+int* io_buf ;
+int _io_ax ;
+int _io_cx ;
+int _io_dx ;
+int _io_tmp ;
+void disk_io (){
+  // reads or writes a sector from disk
+  // ARGUMENTS:
+  // <global> io_lba - the linear address of the sector to load
+  // <global> _io_ax - either 513 to read or 769 to write
+  // RETURNS: <global> io_buf - points to the loaded data
+  lba_to_chs_lba = io_lba ;
+  lba_to_chs ();
+  _io_cx = lba_to_chs_c & 255 ;
+  _io_cx = _io_cx << 8 ;
+  _io_tmp = lba_to_chs_c >> 2 ;
+  _io_tmp = _io_tmp & 192 ;
+  _io_tmp = lba_to_chs_s | _io_tmp ;
+  _io_cx = _io_cx | _io_tmp ;
+  _io_dx = lba_to_chs_h << 8 ;
+  _io_dx = _io_dx | 128 ;
+  // 0x6000
+  io_buf = 24576 ;
+  _ax = io_buf ;
+  asm(" .byte 80 ; ");
+  _ax = _io_dx ;
+  asm(" .byte 80 ; ");
+  _ax = _io_cx ;
+  asm(" .byte 80 ; ");
+  _ax = _io_ax ;
+  asm(" .byte 80 ; ");
+  asm(" .byte 88 ; .byte 89 ; .byte 90 ; .byte 91 ; .byte 205 ; .byte 19 ; ");
 }
 
+void read_sector (){
+  _io_ax = 513 ;
+  disk_io ();
+}
 
+void write_sector (){
+  _io_ax = 769 ;
+  disk_io ();
+}
 
 int* fat16_root_data ;
 int start_sector ;
@@ -340,19 +365,98 @@ void find_file (){
 }
 
 
-int* load_file_metadata ;
-void load_file (){
-  // loads a file from disk into memory at load_sector_buf (note: cannot set this address)
-  // ARGUMENTS: <global> load_file_metadata - pointer to the in memory fs metadata describing the file to load
+int* open_file_metadata ;
+int  open_file_sector ;
+int  open_file_length ;
+void open_file (){
+  // opens a a file and loads its first sector into memory
+  // ARGUMENTS: <global> open_file_metadata - pointer to the in memory fs metadata describing the file to load
   // RETURNS: NONE
 
-  // read cluster number
-  load_file_metadata = load_file_metadata + 6 ;
-  load_sector_lba = * load_file_metadata - 2 ;
-  load_sector_lba = load_sector_lba + first_data_offset ;
-  load_sector ();
+  // the file starts opened at the first logical sector of the file
+  // this is the first cluster in the chain
+  open_file_sector = 0 ;
+
+  // read cluster number and load that first cluster into memory
+  open_file_metadata = open_file_metadata + 6 ;
+  io_lba = * open_file_metadata - 2 ;
+  io_lba = io_lba + first_data_offset ;
+  read_sector ();
+
+  open_file_metadata = open_file_metadata + 1 ;
+  open_file_length = * open_file_metadata ;
+
+  // move back to start of metadata
+  open_file_metadata = open_file_metadata - 7 ;
 }
- 
+
+int seek_sector ;
+void seek_open_file (){
+  // seeks to a specified sector in the currently open file
+  // ARGUMENTS: <global> seek_sector - the absolute sector in the file to open
+  // RETURNS: NONE
+}
+
+int* write_file_buf ;
+int  write_file_count ;
+int  write_file_offset ;
+void write_file (){
+  // writes the contents of a buffer into the open file at a specified offset in the file
+  // expands the file if needed
+  // ARGUMENTS:
+  //   IMPLICIT OPEN FILE STATE
+  //   <global> write_file_buf - the buffer to write into the file
+  //   <global> write_file_count - the number of 16 bit words to write to the file
+  //   <global> write_file_offset - the offset into the file to begin writing at. must be a multiple of 2, and gets clamped to the end of the file
+
+  // save the currently open sector to restore it later
+  seek_sector = open_file_sector ;
+
+  if( open_file_length < write_file_offset ){
+    write_file_offset = open_file_length ;
+  }
+
+  // maximum amount needed to align to a sector
+  memcpy_count = open_file_length & 255 ;
+  memcpy_count = 512 - memcpy_count ;
+  // bytes -> words
+  memcpy_count = memcpy_count >> 1 ;
+
+  if( write_file_count < memcpy_count ){
+    memcpy_count = write_file_count ;
+  }
+
+  memcpy_src = write_file_buf ;
+  memcpy_dst = io_buf ;
+  // memcpy_count gets destroyed by memcpy, so do this first
+  write_file_buf = write_file_buf + memcpy_count ;
+  write_file_count = write_file_count - memcpy_count ;
+  io_buf = io_buf + memcpy_count ;
+  memcpy ();
+  // TODO: SAVE THINGS
+
+  // now save sectors at a time
+  int_div_lhs = write_file_count ;
+  int_div_rhs = 256 ;
+  int_div ();
+  while( 0 < int_div_quot ){
+    memcpy_src = write_file_buf ;
+    memcpy_dst = io_buf ;
+    memcpy_count = 256 ;
+    memcpy ();
+    // TODO: SAVE THINGS
+    write_file_buf = write_file_buf + 256 ;
+    int_div_quot = int_div_quot - 1 ;
+  }
+
+  if( 0 < int_div_rem ){
+    memcpy_src = write_file_buf ;
+    memcpy_dst = io_buf ;
+    memcpy_count = int_div_rem ;
+    memcpy ();
+    // SAVE IT HERE
+  }
+}
 
 int buf ;
 int read_byte_val ;
@@ -438,8 +542,10 @@ void read_root (){
   fat1_offset = 1 ;
   first_data_offset = 11 ;
 
-  load_sector_lba = start_sector + root_dir_offset ;
-  load_sector ();
+  c = 48 ;
+  print_char ();
+  io_lba = start_sector + root_dir_offset ;
+  read_sector ();
 
   // 0x1000
   fat16_root_data = 4096 ;
@@ -451,7 +557,7 @@ void read_root (){
 
   _read_root_count = 0 ;
   while( _read_root_count < 128 ){
-    local_val = load_sector_buf ;
+    local_val = io_buf ;
     push_local ();
     read_dir_entry ();
     pop_local ();
@@ -486,7 +592,7 @@ void read_root (){
       print_char ();
 
       // each entry is 32 bytes
-      load_sector_buf = load_sector_buf + 16 ;
+      io_buf = io_buf + 16 ;
       _read_root_count = _read_root_count + 1 ;
     }
   }
@@ -507,23 +613,17 @@ int main (){
   while( delay < 65000 ){
     delay = delay + 1 ;
   }
-
   // read the root directory of the FAT16 tables and create the in-memory representation
   read_root ();
-
   local_val = fat16_root_data + 8 ;
   push_local ();
   find_file ();
   pop_local ();
 
-  print_hex_val = 999 ;
-  print_hex ();
+  open_file_metadata = local_val ;
+  open_file ();
 
-  load_file_metadata = local_val ;
-  load_file ();
-  asm(" .byte 235 ; .byte 254 ; ");
-
-  print_hex_val = local_val ;
+  print_hex_val = open_file_metadata - 6 ;
   print_hex ();
 
   asm(" .byte 235 ; .byte 254 ; ");
