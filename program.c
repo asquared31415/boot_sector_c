@@ -54,9 +54,9 @@ void wide_pointer_read (){
     asm(" .byte 142 ; .byte 232 ; ");
     // xchg bx, ax
     // mov ax, word gs:[bx]
-    // mov word [0x8000], ax
+    // mov word [0x1000], ax
     _ax = ptr ;
-    asm(" .byte 147 ; .byte 101 ; .byte 139 ; .byte 7 ; .byte 163 ; .byte 0 ; .byte 128 ; ");
+    asm(" .byte 147 ; .byte 101 ; .byte 139 ; .byte 7 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
 }
 
 
@@ -140,15 +140,18 @@ int port ;
 int port_val ;
 void inb (){
     _ax = port ;
-    asm(" .byte 146 ; .byte 236 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
+    // xchg ax, dx; in al, dx; move byte [0x1000], al
+    asm(" .byte 146 ; .byte 236 ; .byte 162 ; .byte 0 ; .byte 16 ; ");
     port_val = _ax ;
     port_val = port_val & 255 ;
 }
 void outb (){
     _ax = port ;
+    // xchg ax, dx
     asm(" .byte 146 ; ");
     _ax = port_val ;
-    asm(" .byte 238 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
+    // out dx, al
+    asm(" .byte 238 ; ");
 }
 int c ;
 int state ;
@@ -215,8 +218,8 @@ void print_string (){
     c = _print_string_byte ;
     print_char ();
     // hack to get a 1 byte offset
-    _print_string_byte = print_string_src + 1 ;
-    print_string_src = _print_string_byte ;
+    _print_string_byte = print_string_src ;
+    print_string_src = _print_string_byte + 1 ;
     _print_string_byte = * print_string_src & 255 ;
   }
 }
@@ -228,9 +231,11 @@ int max_cylinder_num ;
 int _get_drive_stats_tmp ;
 void get_drive_stats (){
   asm(" .byte 180 ; .byte 8 ; .byte 178 ; .byte 128 ; .byte 205 ; .byte 19 ; .byte 81 ; .byte 82 ; ");
-  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
-  max_head_num = _ax & 255 ;
-  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 128 ; ");
+  // pop ax; move byte [0x1000], al
+  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 16 ; ");
+  max_head_num = _ax >> 8 ;
+  // pop ax; move byte [0x1000], al
+  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 16 ; ");
   max_cylinder_num = _ax & 192 ;
   max_cylinder_num = max_cylinder_num << 8 ;
   _get_drive_stats_tmp = _ax & 65280 ;
@@ -386,6 +391,8 @@ void open_file (){
   open_file_metadata = open_file_metadata + 6 ;
   io_lba = * open_file_metadata - 2 ;
   io_lba = io_lba + first_data_offset ;
+  print_hex_val = io_lba ;
+  print_hex ();
   read_sector ();
 
   open_file_metadata = open_file_metadata + 1 ;
@@ -436,9 +443,8 @@ void write_file (){
   // memcpy_count gets destroyed by memcpy, so do this first
   write_file_buf = write_file_buf + memcpy_count ;
   write_file_count = write_file_count - memcpy_count ;
-  io_buf = io_buf + memcpy_count ;
   memcpy ();
-  // TODO: SAVE THINGS
+  write_sector ();
 
   // now save sectors at a time
   int_div_lhs = write_file_count ;
@@ -449,7 +455,7 @@ void write_file (){
     memcpy_dst = io_buf ;
     memcpy_count = 256 ;
     memcpy ();
-    // TODO: SAVE THINGS
+    write_sector ();
     write_file_buf = write_file_buf + 256 ;
     int_div_quot = int_div_quot - 1 ;
   }
@@ -459,7 +465,7 @@ void write_file (){
     memcpy_dst = io_buf ;
     memcpy_count = int_div_rem ;
     memcpy ();
-    // SAVE IT HERE
+    write_sector ();
   }
 }
 
@@ -547,13 +553,11 @@ void read_root (){
   fat1_offset = 1 ;
   first_data_offset = 11 ;
 
-  c = 48 ;
-  print_char ();
   io_lba = start_sector + root_dir_offset ;
   read_sector ();
 
-  // 0x1000
-  fat16_root_data = 4096 ;
+  // 0xD000
+  fat16_root_data = 53248 ;
   memset_ptr = fat16_root_data ;
   memset_val = 0 ;
   // 0x2000 * 2 bytes = 0x4000 bytes
@@ -570,8 +574,8 @@ void read_root (){
     _read_root_dirent_status = local_val ;
     // status 2 is end of directory
     if( _read_root_dirent_status == 2 ){
-      // 0x1000
-      fat16_root_data = 4096 ;
+      // 0xD000
+      fat16_root_data = 53248 ;
       return;
     }
     // FIXME: implement status 1: vacant entry by not printing
@@ -602,8 +606,8 @@ void read_root (){
     }
   }
 
-  // 0x1000
-  fat16_root_data = 4096 ;
+  // 0xD000
+  fat16_root_data = 53248 ;
 }
 
 int delay ;
@@ -628,8 +632,17 @@ int main (){
   open_file_metadata = local_val ;
   open_file ();
 
-  print_hex_val = open_file_metadata - 6 ;
-  print_hex ();
+  // 0x6400
+  memset_ptr = 25600 ;
+  // 0x4141
+  memset_val = 16705 ;
+  // 0x300 words
+  memset_count = 768 ;
+  memset ();
+  write_file_buf = 25600 ;
+  write_file_count = 768 ;
+  write_file_offset = 0 ;
+  write_file ();
 
   asm(" .byte 235 ; .byte 254 ; ");
 }

@@ -5,15 +5,14 @@ org 0x7C00 ; BIOS drops us at this address
 
 main:
     ; segments
-    xor di, di
-    mov ds, di ; ds is used by lods
-    mov es, di ; es used by stos
+    xor ax, ax
+    mov ds, ax ; ds is used by lods
+    mov es, ax ; es used by stos
 
     ; clear ident->addr map
-    xor ax, ax
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
-    dec di     ; |
-    inc edi    ; | start pointer is 0x1_0000
+    mov di, 0xFFFF ; |
+    inc edi        ; | start pointer is 0x1_0000
     a32 rep stosd
 
     ; Initialize serial
@@ -277,7 +276,7 @@ _expr:
     ._binop_loop:
         cmp al, byte [bx]
         je ._binop_eq
-        add bx, 3
+        add bl, 3
         jmp ._binop_loop ; it's UB to not have a binop here, so just loop forever
 
     ._binop_eq:
