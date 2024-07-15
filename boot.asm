@@ -331,9 +331,9 @@ _expr:
         db TokenKind.NOT_EQUAL & 0xFF
             db 0x95, 0xC0 ; setne last two bytes
         db TokenKind.LESS & 0xFF
-            db 0x92, 0xC0 ; setl last two bytes
+            db 0x9C, 0xC0 ; setl last two bytes
         db TokenKind.LESS_EQUAL & 0xFF
-            db 0x96, 0xC0 ; setle last two bytes
+            db 0x9E, 0xC0 ; setle last two bytes
 
 
 ; si must hold the address of the current position in the text
