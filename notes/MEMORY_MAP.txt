@@ -19,5 +19,6 @@
 0x0_6E00-0x0_7BFF: stack pointer is somewhere in here-ish
 0x0_7C00-0x0_7FFF: local data stack (this probably needs to be expanded)
 0x0_8000-0x0_CFFF: FAT16 root data structures
-0x0_D000-0x0_FFFF: unallocated RAM
+0x0_D000-0x0_D1FF: file allocation table
+0x0_D200-0x0_FFFF: unallocated RAM
 0x1_0000-

@@ -207,6 +207,12 @@ void print_hex (){
   }
 }
 
+void println_hex (){
+  print_hex ();
+  c = 10 ;
+  print_char ();
+}
+
 int* print_string_src ;
 int _print_string_byte ;
 void print_string (){
@@ -231,11 +237,11 @@ int max_cylinder_num ;
 int _get_drive_stats_tmp ;
 void get_drive_stats (){
   asm(" .byte 180 ; .byte 8 ; .byte 178 ; .byte 128 ; .byte 205 ; .byte 19 ; .byte 81 ; .byte 82 ; ");
-  // pop ax; move byte [0x1000], al
-  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 16 ; ");
+  // pop ax; move word [0x1000], ax
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
   max_head_num = _ax >> 8 ;
-  // pop ax; move byte [0x1000], al
-  asm(" .byte 88 ; .byte 162 ; .byte 0 ; .byte 16 ; ");
+  // pop ax; move word [0x1000], ax
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
   max_cylinder_num = _ax & 192 ;
   max_cylinder_num = max_cylinder_num << 8 ;
   _get_drive_stats_tmp = _ax & 65280 ;
@@ -330,10 +336,13 @@ void read_sector (){
 }
 
 void write_sector (){
+  c = 87 ;
+  print_char ();
   _io_ax = 769 ;
   disk_io ();
 }
 
+int* FAT ;
 int* fat16_root_data ;
 int start_sector ;
 int first_data_offset ;
@@ -377,6 +386,7 @@ void find_file (){
 
 int* open_file_metadata ;
 int  open_file_sector ;
+int  open_file_fat_cluster ;
 int  open_file_length ;
 void open_file (){
   // opens a a file and loads its first sector into memory
@@ -389,10 +399,9 @@ void open_file (){
 
   // read cluster number and load that first cluster into memory
   open_file_metadata = open_file_metadata + 6 ;
-  io_lba = * open_file_metadata - 2 ;
+  open_file_fat_cluster = * open_file_metadata ;
+  io_lba = open_file_fat_cluster - 2 ;
   io_lba = io_lba + first_data_offset ;
-  print_hex_val = io_lba ;
-  print_hex ();
   read_sector ();
 
   open_file_metadata = open_file_metadata + 1 ;
@@ -402,9 +411,53 @@ void open_file (){
   open_file_metadata = open_file_metadata - 7 ;
 }
 
+int next_fat_idx ;
+int* next_fat_val ;
+void next_fat_cluster (){
+  // finds the next non-occupied cluster in the FAT
+  // ARGUMENTS: IMPLICIT DISK STATE
+  // RETURNS: <global> next_fat_idx - the index of the next free cluster, or -1 if it does not exist
+
+  // entries 0 and 1 are reserved
+  next_fat_idx = 2 ;
+  // we only have 256 clusters
+  while( next_fat_idx < 256 ){
+    next_fat_val = FAT + next_fat_idx ;
+    next_fat_val = * next_fat_val ;
+    if( next_fat_val == 0 ){
+      return;
+    }
+    next_fat_idx = next_fat_idx + 1 ;
+  }
+  // no free cluster found
+  next_fat_idx = 65535 ;
+}
+
+int cluster ;
+int next_cluster ;
+void next_cluster_get (){
+  // gets the next cluster in a cluster chain
+  // ARGUMENTS: IMPLICIT DISK STATE
+  //            <global> cluster - the cluster to find the next cluster for
+  // RETURNS: <global> next_cluster - the next cluster index
+  next_fat_val = FAT + cluster ;
+  next_cluster = * next_fat_val ;
+}
+
+void next_cluster_set (){
+  // sets the next cluster in a cluster chain
+  // ARGUMENTS: IMPLICIT DISK STATE
+  //            <global> cluster - the cluster to set the next cluster for
+  //            <global> next_cluster - the cluster to set
+  // RETURNS: NONE
+  next_fat_val = FAT + cluster ;
+  * next_fat_val = next_cluster ;
+}
+
 int seek_sector ;
 void seek_open_file (){
-  // seeks to a specified sector in the currently open file
+  // seeks to a specified logical sector in the currently open file
+  // updates open_file_sector and open_file_fat_cluster
   // ARGUMENTS: <global> seek_sector - the absolute sector in the file to open
   // RETURNS: NONE
 }
@@ -412,6 +465,34 @@ void seek_open_file (){
 int* write_file_buf ;
 int  write_file_count ;
 int  write_file_offset ;
+int  write_file_loop_count ;
+int _write_file_start_sector ;
+int _write_file_cluster ;
+
+void allocate_new_cluster (){
+  next_fat_cluster ();
+  c = 65 ;
+  print_char ();
+  print_hex_val = next_fat_idx ;
+  println_hex ();
+  // set the current cluster to point to the next one
+  cluster = _write_file_cluster ;
+  next_cluster = next_fat_idx ;
+  next_cluster_set ();
+  _write_file_cluster = next_fat_idx ;
+  io_lba = first_data_offset + next_fat_idx ;
+  io_lba = io_lba - 2 ;
+  // zero the newly allocated cluster
+  memset_ptr = io_buf ;
+  memset_val = 0 ;
+  memset_count = 256 ;
+  // set the cluster after the next cluster to be EoF
+  cluster = next_fat_idx ;
+  // 0xFFFF
+  next_cluster = 65535 ;
+  next_cluster_set ();
+}
+
 void write_file (){
   // writes the contents of a buffer into the open file at a specified offset in the file
   // expands the file if needed
@@ -421,49 +502,72 @@ void write_file (){
   //   <global> write_file_count - the number of 16 bit words to write to the file
   //   <global> write_file_offset - the offset into the file to begin writing at. must be a multiple of 2, and gets clamped to the end of the file
 
-  // save the currently open sector to restore it later
-  seek_sector = open_file_sector ;
+  // save this for later
+  _write_file_start_sector = open_file_sector ;
 
   if( open_file_length < write_file_offset ){
     write_file_offset = open_file_length ;
   }
 
-  // maximum amount needed to align to a sector
-  memcpy_count = open_file_length & 255 ;
-  memcpy_count = 512 - memcpy_count ;
-  // bytes -> words
-  memcpy_count = memcpy_count >> 1 ;
+  // byte offset to number of words needed to align to a sector
+  memcpy_count = write_file_offset >> 1 ;
+  memcpy_count = memcpy_count & 255 ;
+  memcpy_count = 256 - memcpy_count ;
 
   if( write_file_count < memcpy_count ){
     memcpy_count = write_file_count ;
   }
 
-  memcpy_src = write_file_buf ;
-  memcpy_dst = io_buf ;
-  // memcpy_count gets destroyed by memcpy, so do this first
-  write_file_buf = write_file_buf + memcpy_count ;
-  write_file_count = write_file_count - memcpy_count ;
-  memcpy ();
-  write_sector ();
-
-  // now save sectors at a time
-  int_div_lhs = write_file_count ;
-  int_div_rhs = 256 ;
-  int_div ();
-  while( 0 < int_div_quot ){
+  // don't do this alignment write if it's not needed
+  if( memcpy_count != 0 ){
     memcpy_src = write_file_buf ;
     memcpy_dst = io_buf ;
-    memcpy_count = 256 ;
+    // memcpy_count gets destroyed by memcpy, so do this first
+    write_file_buf = write_file_buf + memcpy_count ;
+    write_file_count = write_file_count - memcpy_count ;
     memcpy ();
+    print_hex_val = io_lba ;
+    println_hex ();
+
+    // we know this FAT cluster is allocated to the file already, just write it
     write_sector ();
-    write_file_buf = write_file_buf + 256 ;
-    int_div_quot = int_div_quot - 1 ;
   }
 
-  if( 0 < int_div_rem ){
+  _write_file_cluster = open_file_fat_cluster ;
+  while( 0 < write_file_count ){
+    // if the cluster that is about to be written to is EoF or unallocated
+    // allocate a new cluster, otherwise, reuse an existing cluster to keep
+    // any data that may already exist
+    // note that only clusters 0x0002-0x7FFF will be allocated, negative clusters
+    // are not used
+    cluster = _write_file_cluster ;
+    print_hex_val = _write_file_cluster ;
+    print_hex ();
+    next_cluster_get ();
+    print_hex_val = next_cluster ;
+    println_hex ();
+    if( 1 < next_cluster ){
+      // reuse cluster, load its old data to write back
+      _write_file_cluster = next_cluster ;
+      io_lba = first_data_offset + next_cluster ;
+      io_lba = io_lba - 2 ;
+      read_sector ();
+    }
+    if( next_cluster <= 0 ){
+      allocate_new_cluster ();
+    }
+
+    print_hex_val = io_lba ;
+    println_hex ();
     memcpy_src = write_file_buf ;
     memcpy_dst = io_buf ;
-    memcpy_count = int_div_rem ;
+    memcpy_count = write_file_count ;
+    // write at most a file at a time
+    if( 256 < memcpy_count ){
+      memcpy_count = 256 ;
+    }
+    write_file_buf = write_file_buf + memcpy_count ;
+    write_file_count = write_file_count - memcpy_count ;
     memcpy ();
     write_sector ();
   }
@@ -548,16 +652,28 @@ int _read_root_count ;
 int _read_root_cluster ;
 int _read_root_dirent_status ;
 void read_root (){
+  // reads the FAT16 data on disk into an in-memory structure
+  // this both loads the FAT itself and the contents of the root directory
   start_sector = 1 ;
   root_dir_offset = 3 ;
   fat1_offset = 1 ;
   first_data_offset = 11 ;
 
+  // 0xD000
+  FAT = 53248 ;
+  io_lba = start_sector + fat1_offset ;
+  read_sector ();
+  memcpy_src = io_buf ;
+  memcpy_dst = FAT ;
+  // 256 words = 1 sector
+  memcpy_count = 256 ;
+  memcpy ();
+
   io_lba = start_sector + root_dir_offset ;
   read_sector ();
 
-  // 0xD000
-  fat16_root_data = 53248 ;
+  // 0x8000
+  fat16_root_data = 32768 ;
   memset_ptr = fat16_root_data ;
   memset_val = 0 ;
   // 0x2000 * 2 bytes = 0x4000 bytes
@@ -574,8 +690,8 @@ void read_root (){
     _read_root_dirent_status = local_val ;
     // status 2 is end of directory
     if( _read_root_dirent_status == 2 ){
-      // 0xD000
-      fat16_root_data = 53248 ;
+      // 0x8000
+      fat16_root_data = 32768 ;
       return;
     }
     // FIXME: implement status 1: vacant entry by not printing
@@ -606,8 +722,8 @@ void read_root (){
     }
   }
 
-  // 0xD000
-  fat16_root_data = 53248 ;
+  // 0x8000
+  fat16_root_data = 32768 ;
 }
 
 int delay ;
@@ -622,7 +738,8 @@ int main (){
   while( delay < 65000 ){
     delay = delay + 1 ;
   }
-  // read the root directory of the FAT16 tables and create the in-memory representation
+   
+  // read the root directory of the FAT16 tables and create the in-memory representation 
   read_root ();
   local_val = fat16_root_data + 8 ;
   push_local ();
