@@ -346,12 +346,15 @@ int* FAT ;
 int* fat16_root_data ;
 int start_sector ;
 int first_data_offset ;
-
+int root_dir_offset ;
+int root_dir_entries ;
+int fat1_offset ;
+int fat2_offset ;
 int* dirent_file_name ;
 
 int* _find_file_name_ptr ;
 int* _find_file_search_ptr ;
-int _find_file_count ;
+int find_file_idx ;
 void find_file (){
   // ARGUMENTS: pointer to 12 bytes that contain the null terminated name of the file
   // RETURNS: pointer to the start of the fs metadata block that matched, or 0
@@ -360,9 +363,8 @@ void find_file (){
   _find_file_name_ptr = local_val ;
 
   _find_file_search_ptr = fat16_root_data ;
-  _find_file_count = 0 ;
-  // 0x80 entries in the root dir
-  while( _find_file_count < 128 ){
+  find_file_idx = 0 ;
+  while( find_file_idx < root_dir_entries ){
     // search for a fs entry with the same name
     strcmp_lhs = _find_file_name_ptr ;
     strcmp_rhs = _find_file_search_ptr ;
@@ -375,7 +377,7 @@ void find_file (){
 
     // increment to the next fs entry (16 bytes each)
     _find_file_search_ptr = _find_file_search_ptr + 8 ;
-    _find_file_count = _find_file_count + 1 ;
+    find_file_idx = find_file_idx + 1 ;
   }
 
   // if we got here, no file found
@@ -400,6 +402,10 @@ void open_file (){
   // read cluster number and load that first cluster into memory
   open_file_metadata = open_file_metadata + 6 ;
   open_file_fat_cluster = * open_file_metadata ;
+  c = 79 ;
+  print_char ();
+  print_hex_val = open_file_fat_cluster ;
+  println_hex ();
   io_lba = open_file_fat_cluster - 2 ;
   io_lba = io_lba + first_data_offset ;
   read_sector ();
@@ -420,6 +426,7 @@ void next_fat_cluster (){
 
   // entries 0 and 1 are reserved
   next_fat_idx = 2 ;
+  // FIXME: this is wrong
   // we only have 256 clusters
   while( next_fat_idx < 256 ){
     next_fat_val = FAT + next_fat_idx ;
@@ -462,10 +469,45 @@ void seek_open_file (){
   // RETURNS: NONE
 }
 
+int* _set_file_ptr ;
+void set_file_length (){
+  // sets the length of a file to a specified value and commits it to disk
+  // ARGUMENTS: IMPLICIT OPEN FILE STATE
+  //   <global> open_file_length - the length to set
+  // RETURNS: NONE
+
+  // write to the in-memory fs structure
+  open_file_metadata = open_file_metadata + 7 ;
+  * open_file_metadata = open_file_length ;
+  open_file_metadata = open_file_metadata - 7 ;
+
+  // write to the on-disk directory table
+  local_val = open_file_metadata ;
+  push_local ();
+  find_file ();
+  pop_local ();
+  c = 76 ;
+  print_char ();
+  print_hex_val = find_file_idx ;
+  println_hex ();
+
+  io_lba = root_dir_offset ;
+  read_sector ();
+  // directory entries are 0x20 bytes each, but the ptr add does another x2
+  find_file_idx = find_file_idx << 4 ;
+  _set_file_ptr = io_buf + find_file_idx ;
+  // file length is at offset 0x1C
+  _set_file_ptr = _set_file_ptr + 14 ;
+  print_hex_val = _set_file_ptr ;
+  println_hex ();
+  // length is in bytes, we have it in words
+  * _set_file_ptr = open_file_length << 1 ;
+  write_sector ();
+}
+
 int* write_file_buf ;
 int  write_file_count ;
 int  write_file_offset ;
-int  write_file_loop_count ;
 int _write_file_start_sector ;
 int _write_file_cluster ;
 
@@ -502,12 +544,20 @@ void write_file (){
   //   <global> write_file_count - the number of 16 bit words to write to the file
   //   <global> write_file_offset - the offset into the file to begin writing at. must be a multiple of 2, and gets clamped to the end of the file
 
-  // save this for later
+  // save the logical sector in the file to restore after
   _write_file_start_sector = open_file_sector ;
 
   if( open_file_length < write_file_offset ){
     write_file_offset = open_file_length ;
   }
+
+  // calculate the end size of the file after the write is done
+  // reusing this variable
+  _write_file_cluster = write_file_offset + write_file_count ;
+  if( open_file_length < _write_file_cluster ){
+    open_file_length = _write_file_cluster ;
+  }
+  set_file_length ();
 
   // byte offset to number of words needed to align to a sector
   memcpy_count = write_file_offset >> 1 ;
@@ -518,6 +568,11 @@ void write_file (){
     memcpy_count = write_file_count ;
   }
 
+  _write_file_cluster = open_file_fat_cluster ;
+  c = 119 ;
+  print_char ();
+  print_hex_val = _write_file_cluster ;
+  println_hex ();
   // don't do this alignment write if it's not needed
   if( memcpy_count != 0 ){
     memcpy_src = write_file_buf ;
@@ -526,6 +581,8 @@ void write_file (){
     write_file_buf = write_file_buf + memcpy_count ;
     write_file_count = write_file_count - memcpy_count ;
     memcpy ();
+    io_lba = first_data_offset + _write_file_cluster ;
+    io_lba = io_lba - 2 ;
     print_hex_val = io_lba ;
     println_hex ();
 
@@ -533,7 +590,6 @@ void write_file (){
     write_sector ();
   }
 
-  _write_file_cluster = open_file_fat_cluster ;
   while( 0 < write_file_count ){
     // if the cluster that is about to be written to is EoF or unallocated
     // allocate a new cluster, otherwise, reuse an existing cluster to keep
@@ -571,6 +627,18 @@ void write_file (){
     memcpy ();
     write_sector ();
   }
+
+  // update the directory entry to have the new size
+
+  // write the updated FAT back out to disk
+  memcpy_src = FAT ;
+  memcpy_dst = io_buf ;
+  memcpy_count = 256 ;
+  memcpy ();
+  io_lba = fat1_offset ;
+  write_sector ();
+  io_lba = fat2_offset ;
+  write_sector ();
 }
 
 int buf ;
@@ -645,9 +713,6 @@ void read_dir_entry (){
   push_local ();
 }
 
-int root_dir_offset ;
-int fat1_offset ;
-
 int _read_root_count ;
 int _read_root_cluster ;
 int _read_root_dirent_status ;
@@ -655,13 +720,17 @@ void read_root (){
   // reads the FAT16 data on disk into an in-memory structure
   // this both loads the FAT itself and the contents of the root directory
   start_sector = 1 ;
-  root_dir_offset = 3 ;
-  fat1_offset = 1 ;
-  first_data_offset = 11 ;
+  // these are all ABSOLUTE offsets from the start of the disk, not
+  // relative to the start of the partition
+  fat1_offset = 2 ;
+  fat2_offset = 66 ;
+  root_dir_offset = 130 ;
+  root_dir_entries = 128 ;
+  first_data_offset = 138 ;
 
   // 0xD000
   FAT = 53248 ;
-  io_lba = start_sector + fat1_offset ;
+  io_lba = fat1_offset ;
   read_sector ();
   memcpy_src = io_buf ;
   memcpy_dst = FAT ;
@@ -669,7 +738,7 @@ void read_root (){
   memcpy_count = 256 ;
   memcpy ();
 
-  io_lba = start_sector + root_dir_offset ;
+  io_lba = root_dir_offset ;
   read_sector ();
 
   // 0x8000
@@ -681,7 +750,7 @@ void read_root (){
   memset ();
 
   _read_root_count = 0 ;
-  while( _read_root_count < 128 ){
+  while( _read_root_count < root_dir_entries ){
     local_val = io_buf ;
     push_local ();
     read_dir_entry ();
@@ -710,7 +779,7 @@ void read_root (){
 
       // print the file size
       print_hex_val = fat16_root_data - 1 ;
-      print_hex_val = * print_hex_val ; 
+      print_hex_val = * print_hex_val ;
       print_hex ();
 
       c = 10 ;

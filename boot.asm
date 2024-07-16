@@ -428,7 +428,7 @@ TIMES 0x1BE-($-$$) db 0x00
 ; NOTE: the first sector of the device does not need to be within a partition
 
 ; FAT16 partition
-part0: PART 0x00,0x01,0x7F
+part0: PART 0x00,0x01,0x3FFF
 
 part1: TIMES 16 db 0x00
 part2: TIMES 16 db 0x00

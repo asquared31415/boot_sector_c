@@ -5,14 +5,17 @@ BPB:
     reserved sectors: 0x0001
     FATs: 0x02
     root directory entries: 0x0080
-    total number of sectors: 0x007F
+    total number of sectors: 0x3FFF
     media descriptor: 0xF8
-    sectors per FAT: 0x0001
+    sectors per FAT: 0x0040
     sectors per track: 0x003E
     heads: 0x007C
     hidden sectors: 0x00000001
     large sector count: <UNUSED> (0x00000000)
 
-first FAT sector: sector 1 (from start of partition)
-root directory size: 0x08 sectors
-root directory sector: sector 3 (from start of partition)
+NOTE: all values relative to start of partition, not disk
+  FAT 1: sector 0x01 (1)
+  FAT 2: sector 0x41 (65)
+  root directory: sector 0x81 (129)
+                  size   0x08 (8)
+  first data sector: 0x89 (137) = 1 + (2 * 0x40) + 0x08
