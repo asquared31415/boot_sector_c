@@ -1,24 +1,23 @@
 0x0_0000-0x0_04FF: BIOS (DO NOT USE)
 0x0_0500-0x0_0FFF: unallocated RAM
 0x0_1000-0x0_5FFF: generated code
-0x0_6000-0x0_79FF: unallocated RAM
-0x0_6E00-0x0_6FFF: boot sector stack
-0x0_7000-0x0_7BFF: unallocated (probably do not use)
+0x0_6000-0x0_7BFF: stack pointer is somewhere in here
 0x0_7C00-0x0_7DFF: boot sector
-0x0_7E00-0x0_7FFF: misc boot sector RAM
+0x0_7E00-0x0_7FFF: unallocated
 0x0_8000-0x0_FFFF: program source
 0x1_0000-0x2_FFFF: compiler ident->mem table
 
 // ONCE IN COMPILER:
 0x0_0000-0x0_04FF: BIOS (DO NOT USE)
-0x0_0500-0x0_0FFF: unallocated RAM
+0x0_0500-0x0_0EFF: stack pointer
 0x0_0F00-0x0_0FFF: fs temp buffers
 0x0_1000-0x0_5FFF: compiler program (DO NOT USE)
 0x0_6000-0x0_61FF: drive read/write sector buffer
-0x0_6200-0x0_6DFF: unallocated
-0x0_6E00-0x0_7BFF: stack pointer is somewhere in here-ish
-0x0_7C00-0x0_7FFF: local data stack (this probably needs to be expanded)
-0x0_8000-0x0_CFFF: FAT16 root data structures
-0x0_D000-0x0_D1FF: file allocation table
-0x0_D200-0x0_FFFF: unallocated RAM
+0x0_6200-0x0_71FF: tmp buffer
+0x0_7200-0x0_7BFF: local data stack (this probably needs to be expanded)
+0x0_7C00-0x0_7DFF: boot sector
+0x0_7E00-0x0_7FFF: unallocated
+0x0_8000-0x0_87FF: FAT16 root data structures
+0x0_8800-0x0_89FF: file allocation table
+0x0_8A00-0x0_FFFF: unallocated RAM
 0x1_0000-

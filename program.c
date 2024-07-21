@@ -59,6 +59,7 @@ void wide_pointer_read (){
     asm(" .byte 147 ; .byte 101 ; .byte 139 ; .byte 7 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
 }
 
+int* tmp ;
 
 int* memset_ptr ;
 int memset_val ;
@@ -196,7 +197,7 @@ void print_hex (){
     _print_hex_nibble = print_hex_val & 61440 ;
     _print_hex_nibble = _print_hex_nibble >> 12 ;
     // adjust letters forward into the letter region
-    if( 10 <= _print_hex_nibble ){
+    if( 9 < _print_hex_nibble ){
       _print_hex_nibble = _print_hex_nibble + 7 ;
     }
     // shift from value into digit range
@@ -469,59 +470,21 @@ void seek_open_file (){
   // RETURNS: NONE
 }
 
-int* _set_file_ptr ;
-void set_file_length (){
-  // sets the length of a file to a specified value and commits it to disk
-  // ARGUMENTS: IMPLICIT OPEN FILE STATE
-  //   <global> open_file_length - the length to set
-  // RETURNS: NONE
-
-  // write to the in-memory fs structure
-  open_file_metadata = open_file_metadata + 7 ;
-  * open_file_metadata = open_file_length ;
-  open_file_metadata = open_file_metadata - 7 ;
-
-  // write to the on-disk directory table
-  local_val = open_file_metadata ;
-  push_local ();
-  find_file ();
-  pop_local ();
-  c = 76 ;
-  print_char ();
-  print_hex_val = find_file_idx ;
-  println_hex ();
-
-  io_lba = root_dir_offset ;
-  read_sector ();
-  // directory entries are 0x20 bytes each, but the ptr add does another x2
-  find_file_idx = find_file_idx << 4 ;
-  _set_file_ptr = io_buf + find_file_idx ;
-  // file length is at offset 0x1C
-  _set_file_ptr = _set_file_ptr + 14 ;
-  print_hex_val = _set_file_ptr ;
-  println_hex ();
-  // length is in bytes, we have it in words
-  * _set_file_ptr = open_file_length << 1 ;
-  write_sector ();
-}
-
-int* write_file_buf ;
-int  write_file_count ;
-int  write_file_offset ;
-int _write_file_start_sector ;
-int _write_file_cluster ;
-
 void allocate_new_cluster (){
+  // allocates a new cluster for a file
+  // ARGUMENTS: IMPLICIT OPEN FILE STATE
+  //            <global> cluster - the cluster to insert the new cluster after
+  // RETURNS: <global> next_fat_idx - the newly allocated cluster
+  //          <global> next_cluster - always 0xFFFF
   next_fat_cluster ();
+
   c = 65 ;
   print_char ();
   print_hex_val = next_fat_idx ;
   println_hex ();
-  // set the current cluster to point to the next one
-  cluster = _write_file_cluster ;
+
   next_cluster = next_fat_idx ;
   next_cluster_set ();
-  _write_file_cluster = next_fat_idx ;
   io_lba = first_data_offset + next_fat_idx ;
   io_lba = io_lba - 2 ;
   // zero the newly allocated cluster
@@ -535,6 +498,148 @@ void allocate_new_cluster (){
   next_cluster_set ();
 }
 
+int* _update_dir_ptr ;
+int _update_dir_idx ;
+void update_directory (){
+  // updates the on-disk directory from the in-memory directory data
+
+  // 0x6200
+  tmp = 25088 ;
+  memset_ptr = tmp ;
+  // 0x800 words
+  memset_count = 2048 ;
+  memset_val = 0 ;
+  memset ();
+
+  _update_dir_ptr = fat16_root_data ;
+  _update_dir_idx = 0 ;
+  while( _update_dir_idx < root_dir_entries ){
+    // copy filename
+    memcpy_src = _update_dir_ptr ;
+    memcpy_dst = tmp ;
+    memcpy_count = 6 ;
+    memcpy ();
+
+    // start cluster at offset 12
+    _update_dir_ptr = _update_dir_ptr + 6 ;
+    // start cluster at offset 0x1A
+    tmp = tmp + 13 ;
+    * tmp = * _update_dir_ptr ;
+
+    _update_dir_ptr = _update_dir_ptr + 1 ;
+    tmp = tmp + 1 ;
+    * tmp = * _update_dir_ptr ;
+
+    _update_dir_idx = _update_dir_idx + 1 ;
+    // already at offset 14 of 16
+    _update_dir_ptr = _update_dir_ptr + 1 ;
+    // already at offset 0x1C of 0x20
+    tmp = tmp + 2 ;
+  }
+
+  // 0x6200
+  tmp = 25088 ;
+  // directory table is 0x1000 bytes - 8 sectors
+  _update_dir_ptr = tmp + 2048 ;
+  io_lba = root_dir_offset ;
+  while( tmp < _update_dir_ptr ){
+    memcpy_src = tmp ;
+    memcpy_dst = io_buf ;
+    memcpy_count = 256 ;
+    memcpy ();
+    write_sector ();
+    tmp = tmp + 256 ;
+    io_lba = io_lba +  1 ;
+  }
+}
+
+void update_fat (){
+  // write the updated FAT back out to disk
+  memcpy_src = FAT ;
+  memcpy_dst = io_buf ;
+  memcpy_count = 256 ;
+  memcpy ();
+  io_lba = fat1_offset ;
+  write_sector ();
+  io_lba = fat2_offset ;
+  write_sector ();
+}
+
+void free_fat_chain (){
+  // frees all of the clusters in a FAT chain to the end of the file
+  // ARGUMENTS: <global> cluster - the cluster to start freeing from
+  // RETURNS: NONE
+  local_val = cluster ;
+  push_local ();
+  next_cluster_get ();
+  if( 1 < next_cluster ){
+    // for valid next clusters, try to free them recursively
+    cluster = next_cluster ;
+    free_fat_chain ();
+  }
+  pop_local ();
+  cluster = local_val ;
+  next_cluster = 0 ;
+  next_cluster_set ();
+}
+
+int file_length ;
+int* _set_file_ptr ;
+int _set_file_count ;
+void file_length_set (){
+  // sets the length of a file to a specified value and commits it to disk
+  // allocates or frees FAT clusters as needed to set the size of the file
+  // ARGUMENTS: IMPLICIT OPEN FILE STATE
+  //   <global> file_length - the length to set
+  // RETURNS: NONE
+
+  c = 83 ;
+  print_char ();
+
+  // follow the FAT chain to set it up properly
+  _set_file_count = 0 ;
+  _set_file_ptr = open_file_metadata + 6 ;
+  cluster = * _set_file_ptr ;
+  while( _set_file_count < file_length ){
+    next_cluster_get ();
+    if( next_cluster < 0 ){
+      // not enough clusters are allocated, allocate as many as needed
+      while( _set_file_count < file_length ){
+        allocate_new_cluster ();
+        cluster = next_fat_idx ;
+        _set_file_count = _set_file_count + 512 ;
+      }
+      // when this drops through, allocate_new_cluster has set next_cluster to 0xFFFF
+    }
+    if( 1 < next_cluster ){
+      cluster = next_cluster ;
+      _set_file_count = _set_file_count + 512 ;
+    }
+  }
+
+  if( 1 < next_cluster ){
+    // if there's still clusters remaining in the chain, free them
+    c = 84 ;
+    print_char ();
+
+    while( 1 == 1 ){
+    }
+  }
+
+  // write to the in-memory fs structure
+  open_file_metadata = open_file_metadata + 7 ;
+  * open_file_metadata = file_length ;
+  open_file_metadata = open_file_metadata - 7 ;
+
+  update_directory ();
+  update_fat ();
+}
+
+int* write_file_buf ;
+int  write_file_count ;
+int  write_file_offset ;
+int _write_file_start_sector ;
+int _write_file_cluster ;
 void write_file (){
   // writes the contents of a buffer into the open file at a specified offset in the file
   // expands the file if needed
@@ -554,10 +659,12 @@ void write_file (){
   // calculate the end size of the file after the write is done
   // reusing this variable
   _write_file_cluster = write_file_offset + write_file_count ;
-  if( open_file_length < _write_file_cluster ){
-    open_file_length = _write_file_cluster ;
+  file_length = open_file_length ;
+  if( file_length < _write_file_cluster ){
+    file_length = _write_file_cluster ;
   }
-  set_file_length ();
+  // allocates FAT clusters as needed
+  file_length_set ();
 
   // byte offset to number of words needed to align to a sector
   memcpy_count = write_file_offset >> 1 ;
@@ -586,39 +693,26 @@ void write_file (){
     print_hex_val = io_lba ;
     println_hex ();
 
-    // we know this FAT cluster is allocated to the file already, just write it
     write_sector ();
   }
 
   while( 0 < write_file_count ){
-    // if the cluster that is about to be written to is EoF or unallocated
-    // allocate a new cluster, otherwise, reuse an existing cluster to keep
-    // any data that may already exist
-    // note that only clusters 0x0002-0x7FFF will be allocated, negative clusters
-    // are not used
     cluster = _write_file_cluster ;
     print_hex_val = _write_file_cluster ;
     print_hex ();
     next_cluster_get ();
     print_hex_val = next_cluster ;
     println_hex ();
-    if( 1 < next_cluster ){
-      // reuse cluster, load its old data to write back
-      _write_file_cluster = next_cluster ;
-      io_lba = first_data_offset + next_cluster ;
-      io_lba = io_lba - 2 ;
-      read_sector ();
-    }
-    if( next_cluster <= 0 ){
-      allocate_new_cluster ();
-    }
-
+    _write_file_cluster = next_cluster ;
+    io_lba = first_data_offset + next_cluster ;
+    io_lba = io_lba - 2 ;
+    read_sector ();
     print_hex_val = io_lba ;
     println_hex ();
     memcpy_src = write_file_buf ;
     memcpy_dst = io_buf ;
     memcpy_count = write_file_count ;
-    // write at most a file at a time
+    // write at most one sector at a time
     if( 256 < memcpy_count ){
       memcpy_count = 256 ;
     }
@@ -627,18 +721,6 @@ void write_file (){
     memcpy ();
     write_sector ();
   }
-
-  // update the directory entry to have the new size
-
-  // write the updated FAT back out to disk
-  memcpy_src = FAT ;
-  memcpy_dst = io_buf ;
-  memcpy_count = 256 ;
-  memcpy ();
-  io_lba = fat1_offset ;
-  write_sector ();
-  io_lba = fat2_offset ;
-  write_sector ();
 }
 
 int buf ;
@@ -797,17 +879,20 @@ void read_root (){
 
 int delay ;
 int main (){
-  // 0x7C00 - used to be boot sector, but control has been transferred permanently
-  local_stack = 31744 ;
+  // set up stack pointer to point somewhere nicer - mov sp, 0x0F00
+  asm(" .byte 188 ; .byte 0 ; .byte 15 ; ");
+
+  // 0x7200
+  local_stack = 29184 ;
 
   // 0x0F00 - 16 bytes
   dirent_file_name = 3840 ;
 
-  delay = 0 ;
-  while( delay < 65000 ){
+  delay = 65535 ;
+  while( delay < 32767 ){
     delay = delay + 1 ;
   }
-   
+
   // read the root directory of the FAT16 tables and create the in-memory representation 
   read_root ();
   local_val = fat16_root_data + 8 ;
@@ -818,14 +903,14 @@ int main (){
   open_file_metadata = local_val ;
   open_file ();
 
-  // 0x6400
-  memset_ptr = 25600 ;
+  // 0x9000
+  memset_ptr = 36864 ;
   // 0x4141
   memset_val = 16705 ;
   // 0x300 words
   memset_count = 768 ;
   memset ();
-  write_file_buf = 25600 ;
+  write_file_buf = 36864 ;
   write_file_count = 768 ;
   write_file_offset = 0 ;
   write_file ();
