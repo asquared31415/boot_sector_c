@@ -1,9 +1,6 @@
 %ifndef CONSTS
     %define CONSTS
 
-    ; SP starts here, and grows downwards towards 0x0000
-    STACK_TOP: equ 0x7C00
-
     COM1_PORT: equ 0x03F8 ; COM1 port
 
     ; the location where the boot sector loads the program into

@@ -4,16 +4,17 @@ org 0x7C00 ; BIOS drops us at this address
 %include "consts.asm"
 
 main:
-    ; segments
+    ; clear ident->addr map
     xor ax, ax
     mov ds, ax ; ds is used by lods
     mov es, ax ; es used by stos
-
-    ; clear ident->addr map
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
+    push cx
     mov di, 0xFFFF ; |
     inc edi        ; | start pointer is 0x1_0000
     a32 rep stosd
+    pop di         ; program buffer for compiler
+    mov si, di
 
     ; Initialize serial
     mov dx, COM1_PORT + 3
@@ -38,9 +39,6 @@ main:
     mov al, 0b0000_0111 ; Enable FIFO and clear the FIFO buffers
     out dx, al
 
-    mov si, PROGRAM_BUFFER ; point to start reading from in the compiler
-    mov di, si
-
     ._load_program:
         mov dl, (COM1_PORT + 5) & 0xFF ; status port
         in al, dx
@@ -56,7 +54,6 @@ main:
     mov di, PROGRAM_MEM_START
 
     ; fallthrough, returns to end
-    ; db "--"
 compiler_entry:
     .loop:
         stosb          ; | align to 2 bytes
@@ -215,21 +212,24 @@ mov_bx_deref_action:
     jmp mov_bx_action.shared ; tail call
 
 _unary:
-    xor bp, bp
     call next_token
+    mov bp, cx               ; store the ident value in bp (zero for integers)
     ; some things use this, save space
     mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
 
+    ;; parens are a unary expression and parse a sub-expression
+    cmp ax, TokenKind.OPEN_PAREN
+    jne ._no_paren
+    jmp _expr                  ; eats the close paren (tail call)
+
+    ._no_paren:
     cmp ax, TokenKind.STAR
     je ._star
 
     ; something is an ident if it has a non-zero entry in the ident map
     ; otherwise it's considered to be a number
     jcxz ._num
-
-    ._ident:
-        mov bp, cx
-        jmp mov_bx_action ; tail call
+    ._ident: jmp mov_bx_action ; tail call
 
     ; mov bx, <CONST>
     ; xchg ax, bx
@@ -259,25 +259,23 @@ _expr:
     ; codegen the RHS unary and get the LHS in ax and RHS in cx
     push bp ; the addr of the ident in the program memory
     push ax ; store the binop ident
-    ; the previous unary codegen put something in ax already, so save it
-    ; to cx, emit another unary and then swap back
-    mov al, 0x91 ; xchg cx, ax
+    ; the previous unary codegen put something in ax already, so save it, emit another unary and then restore it
+    mov al, 0x50 ; push ax
     stosb
-    call _unary ; now the first value is in cx, and the second is in ax
-    mov al, 0x91 ; xchg cx, ax
-    stosb
+    call _unary  ; now the first value is on the stack, and the second is in ax
+    mov ax, 0x9159 ; pop ax; xchg ax, cx
+    stosw
 
     pop ax
     pop dx ; move addr to dx
 
     ; NOTE: at this point, if it's not a semicolon, the token must be a binop token
     ; the binop tokens all have unique low bytes, so only that is compared
-    mov bx, ._arith_binop_codes
+    mov bx, ._arith_binop_codes - 3
     ._binop_loop:
-        cmp al, byte [bx]
-        je ._binop_eq
         add bl, 3
-        jmp ._binop_loop ; it's UB to not have a binop here, so just loop forever
+        cmp al, byte [bx]
+        jne ._binop_loop
 
     ._binop_eq:
         cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on non-scalars, relative to 0x7C00 is the same though
@@ -319,8 +317,6 @@ _expr:
             db 0x09, 0xC8 ; or  ax, cx
         db TokenKind.AND & 0xFF
             db 0x21, 0xC8 ; and ax, cx
-        db TokenKind.XOR & 0xFF
-            db 0x31, 0xC8 ; xor ax, cx
         db TokenKind.SHL & 0xFF
             db 0xD3, 0xE0 ; shl ax, cl
         db TokenKind.SHR & 0xFF
@@ -332,8 +328,6 @@ _expr:
             db 0x95, 0xC0 ; setne last two bytes
         db TokenKind.LESS & 0xFF
             db 0x9C, 0xC0 ; setl last two bytes
-        db TokenKind.LESS_EQUAL & 0xFF
-            db 0x9E, 0xC0 ; setle last two bytes
 
 
 ; si must hold the address of the current position in the text
