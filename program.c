@@ -586,6 +586,7 @@ void free_fat_chain (){
 int file_length ;
 int* _set_file_ptr ;
 int _set_file_count ;
+int _last_cluster ;
 void file_length_set (){
   // sets the length of a file to a specified value and commits it to disk
   // allocates or frees FAT clusters as needed to set the size of the file
@@ -601,6 +602,7 @@ void file_length_set (){
   _set_file_ptr = open_file_metadata + 6 ;
   cluster = * _set_file_ptr ;
   while( _set_file_count < file_length ){
+    _last_cluster = cluster ;
     next_cluster_get ();
     if( next_cluster < 0 ){
       // not enough clusters are allocated, allocate as many as needed
@@ -621,9 +623,12 @@ void file_length_set (){
     // if there's still clusters remaining in the chain, free them
     c = 84 ;
     print_char ();
-
-    while( 1 == 1 ){
-    }
+    cluster = next_cluster ;
+    free_fat_chain ();
+    // set the last used cluster to point to EoF
+    cluster = _last_cluster ;
+    next_cluster = 65535 ;
+    next_cluster_set ();
   }
 
   // write to the in-memory fs structure
