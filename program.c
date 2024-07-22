@@ -5,58 +5,56 @@ int local_idx ;
 int local_val ;
 
 void push_local (){
-    // ARGUMENTS: <GLOBAL> local_val
-    // RETURNS: NONE
-    * local_stack = local_val ;
-    local_stack = local_stack + 1 ;
+  // ARGUMENTS: <GLOBAL> local_val
+  // RETURNS: NONE
+  * local_stack = local_val ;
+  local_stack = local_stack + 1 ;
 }
 
 void pop_local (){
-    // ARGUMENTS: NONE
-    // RETURNS: <GLOBAL> local_val: the value of the local at the top of the stack
-    local_stack = local_stack + 65535 ;
-    local_val = * local_stack ;
+  // ARGUMENTS: NONE
+  // RETURNS: <GLOBAL> local_val: the value of the local at the top of the stack
+  local_stack = local_stack + 65535 ;
+  local_val = * local_stack ;
 }
 
 int* _local_ptr ;
 void read_local (){
-    // ARGUMENTS: <GLOBAL> local_idx
-    // RETURNS: <GLOBAL> local_val: the value of the local
-    _local_ptr = local_stack - local_idx ;
-    // local_stack points to the NEXT pointer, so offset for that
-    _local_ptr = _local_ptr + 65535 ;
-    local_val = * _local_ptr ;
+  // ARGUMENTS: <GLOBAL> local_idx
+  // RETURNS: <GLOBAL> local_val: the value of the local
+  // local_stack points to the NEXT pointer, so offset for that
+  _local_ptr = ( local_stack - local_idx ) - 1 ;
+  local_val = * _local_ptr ;
 }
 
 void write_local (){
-    // ARGUMENTS:
-    // - <GLOBAL> local_idx
-    // - <GLOBAL> local_val
-    // RETURNS: NONE
-    _local_ptr = local_stack - local_idx ;
-    // local_stack points to the NEXT pointer, so offset for that
-    _local_ptr = _local_ptr - 1 ;
-    * _local_ptr = local_val ;
+  // ARGUMENTS:
+  // - <GLOBAL> local_idx
+  // - <GLOBAL> local_val
+  // RETURNS: NONE
+  // local_stack points to the NEXT pointer, so offset for that
+  _local_ptr = ( local_stack - local_idx ) - 1 ;
+  * _local_ptr = local_val ;
 }
 
 int gs ;
 int* ptr ;
 int ptr_val ;
 void wide_pointer_read (){
-    // reads a word at the specified wide pointer
-    // used to access outside the 16 bit pointer range
-    // ARGUMENTS:
-    // <GLOBAL> gs - the value to use for gs in the read
-    // <GLOBAL> ptr - the pointer to use for the offset into the segment for the read
-    // RETURNS: <GLOBAL> ptr_val - the read value
-    _ax = gs ;
-    // mov gs, ax
-    asm(" .byte 142 ; .byte 232 ; ");
-    // xchg bx, ax
-    // mov ax, word gs:[bx]
-    // mov word [0x1000], ax
-    _ax = ptr ;
-    asm(" .byte 147 ; .byte 101 ; .byte 139 ; .byte 7 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  // reads a word at the specified wide pointer
+  // used to access outside the 16 bit pointer range
+  // ARGUMENTS:
+  // <GLOBAL> gs - the value to use for gs in the read
+  // <GLOBAL> ptr - the pointer to use for the offset into the segment for the read
+  // RETURNS: <GLOBAL> ptr_val - the read value
+  _ax = gs ;
+  // mov gs, ax
+  asm(" .byte 142 ; .byte 232 ; ");
+  // xchg bx, ax
+  // mov ax, word gs:[bx]
+  // mov word [0x1000], ax
+  _ax = ptr ;
+  asm(" .byte 147 ; .byte 101 ; .byte 139 ; .byte 7 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
 }
 
 int* tmp ;
@@ -67,12 +65,12 @@ int memset_count ;
 
 int* _memset_ptr_end ;
 void memset (){
-    // sets memset_count *WORDS* of data beginning at memset_ptr to the *WORD* specified in memset_val
-    _memset_ptr_end = memset_ptr + memset_count ;
-    while( memset_ptr < _memset_ptr_end ){
-        * memset_ptr = memset_val ;
-        memset_ptr = memset_ptr + 1 ;
-    }
+  // sets memset_count *WORDS* of data beginning at memset_ptr to the *WORD* specified in memset_val
+  _memset_ptr_end = memset_ptr + memset_count ;
+  while( memset_ptr < _memset_ptr_end ){
+    * memset_ptr = memset_val ;
+    memset_ptr = memset_ptr + 1 ;
+  }
 }
 
 int* memcpy_src ;
@@ -109,79 +107,75 @@ void strcmp (){
 
   _strcmp_lhs_ptr = strcmp_lhs ;
   _strcmp_rhs_ptr = strcmp_rhs ;
-  strcmp_diff = * _strcmp_lhs_ptr - * _strcmp_rhs_ptr ;
-  strcmp_diff = strcmp_diff & 255 ;
+  strcmp_diff = ( * _strcmp_lhs_ptr - * _strcmp_rhs_ptr ) & 255 ;
   // if the strings are different, this loop will exit
   //  - if the strings differ in a normal character, the difference will be non-zero, and the loop will exit
   //  - if one of the strings is a prefix of another ("abc", "abcd"), then the null terminator of one will be different from a character in another
   // if the strings are identical, we need to make sure that we exit when both bytes are null terminators, or else this would read out of bounds
   while( strcmp_diff == 0 ){
-      // handling identical strings
-      // reusing this variable as temp storage
-      strcmp_diff = * _strcmp_lhs_ptr & 255 ;
+    // handling identical strings
+    // reusing this variable as temp storage
+    strcmp_diff = * _strcmp_lhs_ptr & 255 ;
+    if( strcmp_diff == 0 ){
+      strcmp_diff = * _strcmp_rhs_ptr & 255 ;
       if( strcmp_diff == 0 ){
-          strcmp_diff = * _strcmp_rhs_ptr & 255 ;
-          if( strcmp_diff == 0 ){
-            // both were null terminators, return (0 is already in the return global)
-            return;
-          }
+        // both were null terminators, return (0 is already in the return global)
+        return;
       }
+    }
 
-      // read the next byte
-      strcmp_lhs = strcmp_lhs + 1 ;
-      strcmp_rhs = strcmp_rhs + 1 ;
-      _strcmp_lhs_ptr = strcmp_lhs ;
-      _strcmp_rhs_ptr = strcmp_rhs ;
-      strcmp_diff = * _strcmp_lhs_ptr - * _strcmp_rhs_ptr ;
-      strcmp_diff = strcmp_diff & 255 ;
+    // read the next byte
+    strcmp_lhs = strcmp_lhs + 1 ;
+    strcmp_rhs = strcmp_rhs + 1 ;
+    _strcmp_lhs_ptr = strcmp_lhs ;
+    _strcmp_rhs_ptr = strcmp_rhs ;
+    strcmp_diff = ( * _strcmp_lhs_ptr - * _strcmp_rhs_ptr ) & 255 ;
   }
 }
 
 int port ;
 int port_val ;
 void inb (){
-    _ax = port ;
-    // xchg ax, dx; in al, dx; move byte [0x1000], al
-    asm(" .byte 146 ; .byte 236 ; .byte 162 ; .byte 0 ; .byte 16 ; ");
-    port_val = _ax ;
-    port_val = port_val & 255 ;
+  _ax = port ;
+  // xchg ax, dx; in al, dx; move byte [0x1000], al
+  asm(" .byte 146 ; .byte 236 ; .byte 162 ; .byte 0 ; .byte 16 ; ");
+  port_val = _ax & 255 ;
 }
 void outb (){
-    _ax = port ;
-    // xchg ax, dx
-    asm(" .byte 146 ; ");
-    _ax = port_val ;
-    // out dx, al
-    asm(" .byte 238 ; ");
+  _ax = port ;
+  // xchg ax, dx
+  asm(" .byte 146 ; ");
+  _ax = port_val ;
+  // out dx, al
+  asm(" .byte 238 ; ");
 }
 int c ;
 int state ;
 void read_char (){
-    state = 0 ;
-    while( state == 0 ){
-        // 0x3FD - status
-        port = 1021 ;
-        inb ();
-        state = port_val & 1 ;
-    }
-    // 0x3FD - data
-    port = 1016 ;
+  state = 0 ;
+  while( state == 0 ){
+    // 0x3FD - status
+    port = 1021 ;
     inb ();
-    c = port_val ;
-    return;
+    state = port_val & 1 ;
+  }
+  // 0x3FD - data
+  port = 1016 ;
+  inb ();
+  c = port_val ;
 }
 void print_char (){
-    state = 0 ;
-    while( state == 0 ){
-        // 0x3FD - status
-        port = 1021 ;
-        inb ();
-        state = port_val & 32 ;
-    }
-    // 0x3FD - data
-    port = 1016 ;
-    port_val = c ;
-    outb ();
+  state = 0 ;
+  while( state == 0 ){
+    // 0x3FD - status
+    port = 1021 ;
+    inb ();
+    state = port_val & 32 ;
+  }
+  // 0x3FD - data
+  port = 1016 ;
+  port_val = c ;
+  outb ();
 }
 
 int print_hex_val ;
@@ -194,8 +188,7 @@ void print_hex (){
   _print_hex_count = 0 ;
   while( _print_hex_count < 4 ){
     // 0xF000
-    _print_hex_nibble = print_hex_val & 61440 ;
-    _print_hex_nibble = _print_hex_nibble >> 12 ;
+    _print_hex_nibble = ( print_hex_val & 61440 ) >> 12 ;
     // adjust letters forward into the letter region
     if( 9 < _print_hex_nibble ){
       _print_hex_nibble = _print_hex_nibble + 7 ;
@@ -235,7 +228,6 @@ void print_string (){
 int max_head_num ;
 int max_sector_num ;
 int max_cylinder_num ;
-int _get_drive_stats_tmp ;
 void get_drive_stats (){
   asm(" .byte 180 ; .byte 8 ; .byte 178 ; .byte 128 ; .byte 205 ; .byte 19 ; .byte 81 ; .byte 82 ; ");
   // pop ax; move word [0x1000], ax
@@ -243,11 +235,7 @@ void get_drive_stats (){
   max_head_num = _ax >> 8 ;
   // pop ax; move word [0x1000], ax
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  max_cylinder_num = _ax & 192 ;
-  max_cylinder_num = max_cylinder_num << 8 ;
-  _get_drive_stats_tmp = _ax & 65280 ;
-  _get_drive_stats_tmp = _get_drive_stats_tmp >> 8 ;
-  max_cylinder_num = max_cylinder_num | _get_drive_stats_tmp ;
+  max_cylinder_num = ( ( _ax & 192 ) << 8 ) | ( ( _ax & 65280 ) >> 8 ) ;
   max_sector_num = _ax & 63 ;
 }
 
@@ -256,12 +244,12 @@ int int_div_rhs ;
 int int_div_quot ;
 int int_div_rem ;
 void int_div (){
-    int_div_quot = 0 ;
-    while( int_div_rhs < int_div_lhs ){
-        int_div_lhs = int_div_lhs - int_div_rhs ;
-        int_div_quot = int_div_quot + 1 ;
-    }
-    int_div_rem = int_div_lhs ;
+  int_div_quot = 0 ;
+  while( int_div_rhs < int_div_lhs ){
+    int_div_lhs = int_div_lhs - int_div_rhs ;
+    int_div_quot = int_div_quot + 1 ;
+  }
+  int_div_rem = int_div_lhs ;
 }
 
 int mul_lhs ;
@@ -282,18 +270,18 @@ int lba_to_chs_h ;
 int lba_to_chs_s ;
 int _lba_to_chs_tmp ;
 void lba_to_chs (){
-    get_drive_stats ();
+  get_drive_stats ();
 
-    int_div_lhs = lba_to_chs_lba ;
-    int_div_rhs = max_sector_num ;
-    int_div ();
-    _lba_to_chs_tmp = int_div_quot ;
-    lba_to_chs_s = int_div_rem + 1 ;
-    int_div_lhs = _lba_to_chs_tmp ;
-    int_div_rhs = max_head_num + 1 ;
-    int_div ();
-    lba_to_chs_h = int_div_rem ;
-    lba_to_chs_c = int_div_quot ;
+  int_div_lhs = lba_to_chs_lba ;
+  int_div_rhs = max_sector_num ;
+  int_div ();
+  _lba_to_chs_tmp = int_div_quot ;
+  lba_to_chs_s = int_div_rem + 1 ;
+  int_div_lhs = _lba_to_chs_tmp ;
+  int_div_rhs = max_head_num + 1 ;
+  int_div ();
+  lba_to_chs_h = int_div_rem ;
+  lba_to_chs_c = int_div_quot ;
 }
 
 int io_lba ;
@@ -301,7 +289,6 @@ int* io_buf ;
 int _io_ax ;
 int _io_cx ;
 int _io_dx ;
-int _io_tmp ;
 void disk_io (){
   // reads or writes a sector from disk
   // ARGUMENTS:
@@ -310,14 +297,10 @@ void disk_io (){
   // RETURNS: <global> io_buf - points to the loaded data
   lba_to_chs_lba = io_lba ;
   lba_to_chs ();
-  _io_cx = lba_to_chs_c & 255 ;
-  _io_cx = _io_cx << 8 ;
-  _io_tmp = lba_to_chs_c >> 2 ;
-  _io_tmp = _io_tmp & 192 ;
-  _io_tmp = lba_to_chs_s | _io_tmp ;
-  _io_cx = _io_cx | _io_tmp ;
-  _io_dx = lba_to_chs_h << 8 ;
-  _io_dx = _io_dx | 128 ;
+  // 192 - 0xC0
+  _io_cx = ( ( lba_to_chs_c & 255 ) << 8 ) | ( lba_to_chs_s | ( ( lba_to_chs_c >> 2 ) & 192 ) ) ;
+  // set dx to XX80
+  _io_dx = ( lba_to_chs_h << 8 ) | 128 ;
   // 0x6000
   io_buf = 24576 ;
   _ax = io_buf ;
@@ -407,8 +390,7 @@ void open_file (){
   print_char ();
   print_hex_val = open_file_fat_cluster ;
   println_hex ();
-  io_lba = open_file_fat_cluster - 2 ;
-  io_lba = io_lba + first_data_offset ;
+  io_lba = ( first_data_offset + open_file_fat_cluster ) - 2 ;
   read_sector ();
 
   open_file_metadata = open_file_metadata + 1 ;
@@ -485,8 +467,7 @@ void allocate_new_cluster (){
 
   next_cluster = next_fat_idx ;
   next_cluster_set ();
-  io_lba = first_data_offset + next_fat_idx ;
-  io_lba = io_lba - 2 ;
+  io_lba = ( first_data_offset + next_fat_idx ) - 2 ;
   // zero the newly allocated cluster
   memset_ptr = io_buf ;
   memset_val = 0 ;
@@ -672,8 +653,8 @@ void write_file (){
   file_length_set ();
 
   // byte offset to number of words needed to align to a sector
-  memcpy_count = write_file_offset >> 1 ;
-  memcpy_count = memcpy_count & 255 ;
+  // FIXME: why cant i shorten this with parens???
+  memcpy_count = ( write_file_offset >> 1 ) & 255 ;
   memcpy_count = 256 - memcpy_count ;
 
   if( write_file_count < memcpy_count ){
@@ -693,8 +674,7 @@ void write_file (){
     write_file_buf = write_file_buf + memcpy_count ;
     write_file_count = write_file_count - memcpy_count ;
     memcpy ();
-    io_lba = first_data_offset + _write_file_cluster ;
-    io_lba = io_lba - 2 ;
+    io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
     print_hex_val = io_lba ;
     println_hex ();
 
@@ -709,8 +689,7 @@ void write_file (){
     print_hex_val = next_cluster ;
     println_hex ();
     _write_file_cluster = next_cluster ;
-    io_lba = first_data_offset + next_cluster ;
-    io_lba = io_lba - 2 ;
+    io_lba = ( first_data_offset + next_cluster ) - 2 ;
     read_sector ();
     print_hex_val = io_lba ;
     println_hex ();
@@ -732,10 +711,10 @@ int buf ;
 int read_byte_val ;
 int* _read_byte_ptr ;
 void read_byte_buf (){
-    _read_byte_ptr = buf ;
-    read_byte_val = * _read_byte_ptr ;
-    read_byte_val = read_byte_val & 255 ;
-    buf = buf + 1 ;
+  _read_byte_ptr = buf ;
+  read_byte_val = * _read_byte_ptr ;
+  read_byte_val = read_byte_val & 255 ;
+  buf = buf + 1 ;
 }
 
 int* _read_dir_entry_ptr ;
