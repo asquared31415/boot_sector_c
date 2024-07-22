@@ -782,7 +782,7 @@ void read_dir_entry (){
 int _read_root_count ;
 int _read_root_cluster ;
 int _read_root_dirent_status ;
-void read_root (){
+void init_fs (){
   // reads the FAT16 data on disk into an in-memory structure
   // this both loads the FAT itself and the contents of the root directory
   start_sector = 1 ;
@@ -861,6 +861,142 @@ void read_root (){
   fat16_root_data = 32768 ;
 }
 
+int bin_lba ;
+void backup_and_overwrite (){
+  // saves the following data as the first three files on the root directory, in order:
+  //  - the currently executing binary
+  //  - the original boot sector that acts as a compiler
+  // then writes a new boot sector to the drive
+
+  // first file on the fs is at index 0
+  local_val = fat16_root_data ;
+  push_local ();
+  find_file ();
+  pop_local ();
+  // TODO: handle the file not existing
+  open_file_metadata = local_val ;
+  open_file ();
+
+  // save the lba of the binary to place in the boot sector
+  open_file_metadata = open_file_metadata + 6 ;
+  bin_lba = ( first_data_offset + * open_file_metadata ) - 2 ;
+  open_file_metadata = open_file_metadata - 6 ;
+
+  // the program occupies the region 0x1000-0x5FFF (inclusive)
+  write_file_buf = 4096 ;
+  // 0x5000 bytes
+  write_file_count = 20480 ;
+  write_file_offset = 0 ;
+  write_file ();
+
+  // second file on the fs is at index 1
+  local_val = fat16_root_data + 8 ;
+  push_local ();
+  find_file ();
+  pop_local ();
+  // TODO: handle the file not existing
+  open_file_metadata = local_val ;
+  open_file ();
+
+  // the boot sector is at 0x7C00-0x7DFF (inclusive)
+  write_file_buf = 31744 ;
+  // 0x200 bytes
+  write_file_count = 512 ;
+  write_file_offset = 0 ;
+  write_file ();
+
+  // 0x6200
+  tmp = 25088 ;
+  memset_ptr = tmp ;
+  memset_count = 256 ;
+  memset_val = 0 ;
+  memset ();
+
+  // BEGIN GENERATED CODE
+  * tmp = 49201 ;
+  tmp = tmp + 1 ;
+  * tmp = 49294 ;
+  tmp = tmp + 1 ;
+  * tmp = 2228 ;
+  tmp = tmp + 1 ;
+  * tmp = 5069 ;
+  tmp = tmp + 1 ;
+  * tmp = 13960 ;
+  tmp = tmp + 1 ;
+  * tmp = 31802 ;
+  tmp = tmp + 1 ;
+  * tmp = 51336 ;
+  tmp = tmp + 1 ;
+  * tmp = 16164 ;
+  tmp = tmp + 1 ;
+  * tmp = 15266 ;
+  tmp = tmp + 1 ;
+  * tmp = 41340 ;
+  tmp = tmp + 1 ;
+  * tmp = 32188 ;
+  tmp = tmp + 1 ;
+  * tmp = 14070 ;
+  tmp = tmp + 1 ;
+  * tmp = 31803 ;
+  tmp = tmp + 1 ;
+  * tmp = 57736 ;
+  tmp = tmp + 1 ;
+  * tmp = 49662 ;
+  tmp = tmp + 1 ;
+  * tmp = 180 ;
+  tmp = tmp + 1 ;
+  * tmp = 5770 ;
+  tmp = tmp + 1 ;
+  * tmp = 31802 ;
+  tmp = tmp + 1 ;
+  * tmp = 49918 ;
+  tmp = tmp + 1 ;
+  * tmp = 62198 ;
+  tmp = tmp + 1 ;
+  * tmp = 59016 ;
+  tmp = tmp + 1 ;
+  * tmp = 32946 ;
+  tmp = tmp + 1 ;
+  * tmp = 50568 ;
+  tmp = tmp + 1 ;
+  * tmp = 10424 ;
+  tmp = tmp + 1 ;
+  * tmp = 47874 ;
+  tmp = tmp + 1 ;
+  * tmp = 4096 ;
+  tmp = tmp + 1 ;
+  * tmp = 5069 ;
+  tmp = tmp + 1 ;
+  * tmp = 65138 ;
+  tmp = tmp + 1 ;
+  * tmp = 65259 ;
+  tmp = tmp + 196 ;
+  * tmp = 2 ;
+  tmp = tmp + 1 ;
+  * tmp = 4096 ;
+  tmp = tmp + 1 ;
+  * tmp = 529 ;
+  tmp = tmp + 1 ;
+  * tmp = 1 ;
+  tmp = tmp + 2 ;
+  * tmp = 16383 ;
+  tmp = tmp + 26 ;
+  * tmp = 43605 ;
+  // END GENERATED CODE
+
+  // 0x63BC - location of the LBA to fill in
+  tmp = 25532 ;
+  * tmp = bin_lba ;
+
+  // 0x6200
+  memcpy_src = 25088 ;
+  memcpy_dst = io_buf ;
+  memcpy_count = 256 ;
+  memcpy ();
+  io_lba = 0 ;
+  write_sector ();
+}
+
 int delay ;
 int main (){
   // set up stack pointer to point somewhere nicer - mov sp, 0x0F00
@@ -877,27 +1013,9 @@ int main (){
     delay = delay + 1 ;
   }
 
-  // read the root directory of the FAT16 tables and create the in-memory representation 
-  read_root ();
-  local_val = fat16_root_data + 8 ;
-  push_local ();
-  find_file ();
-  pop_local ();
+  init_fs ();
 
-  open_file_metadata = local_val ;
-  open_file ();
-
-  // 0x9000
-  memset_ptr = 36864 ;
-  // 0x4141
-  memset_val = 16705 ;
-  // 0x300 words
-  memset_count = 768 ;
-  memset ();
-  write_file_buf = 36864 ;
-  write_file_count = 768 ;
-  write_file_offset = 0 ;
-  write_file ();
+  backup_and_overwrite ();
 
   asm(" .byte 235 ; .byte 254 ; ");
 }

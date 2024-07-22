@@ -2,5 +2,5 @@ things the program has to do, in order:
  - copy its own binary to disk, on the first file of the root directory
  - save the compiler's source code to disk
  - copy the boot loader to disk as a backup
- - replace the bootloader with a new bootloader that loads the binary from the first disk and runs it
+ - replace the bootloader with a new bootloader that loads the binary from the first file in the disk and runs it
  - ask the user whether to run, edit, or compile
