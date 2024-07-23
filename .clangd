@@ -1,2 +1,10 @@
 CompileFlags:
-  Add: [-Wno-int-conversion, -Wno-incompatible-library-redeclaration]
+  Add: [
+         -ferror-limit=0,
+         -Wall, -Wextra, -Wpedantic,
+         -Wno-int-conversion,
+         -Wno-incompatible-library-redeclaration,
+         -Wno-strict-prototypes,
+         -Wno-language-extension-token,
+         -Wno-empty-translation-unit,
+       ]

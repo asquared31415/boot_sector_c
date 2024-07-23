@@ -30,15 +30,16 @@ main:
     mov bx, 0x1000              ; program expects to be positioned at 0x1000
     int 0x13
     jc $                        ; infinite loop on error to avoid corruption
-    jmp $
+    jmp word [main_addr]
 
 max_head_num: db 0x00
 max_sector_num: db 0x00
 
-TIMES 0x1BC-($-$$) db 0x00
+TIMES 0x1BA-($-$$) db 0x00
 
 ;; TO BE FILLED
 program_lba:    dw 0x0000
+main_addr:      dw 0x0000
 
 TIMES 0x1BE-($-$$) db 0x00
 

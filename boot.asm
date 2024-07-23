@@ -89,63 +89,60 @@ _asm:
     ._loop:
         call next_token ; eat the .byte or find end
         cmp al, (TokenKind.ASM_END & 0xFF) ; since the token must be .byte or ");, we can only compare one byte
-        je _block.stmt_loop
+        je _block
         call next_token ; get the value
         stosb ; write the byte
         call next_token ; eat the ;
         jmp ._loop
 
 _block:
-    .stmt_loop:
-        call next_token
-        cmp ax, TokenKind.CLOSE_BRACE
-        je ._ret
-        cmp ax, TokenKind.ASM_START
-        je _asm ; JUMPS (not return) to stmt_loop
-        push .stmt_loop
-        cmp ax, TokenKind.COMMENT
-        jne ._no_comment
-        ._inc:
-            lodsb
-            cmp al, 0x0A
-            jne ._inc
-            ._ret:
-            ret
-        ._no_comment:
-        cmp ax, TokenKind.IF_START
-        je _if_state ; returns to stmt_loop
-        cmp ax, TokenKind.WHILE_START
-        je _while ; returns to stmt_loop
-        cmp ax, TokenKind.RETURN
-        mov dl, 0xC3
-        je mov_bx_action.shared ; write C3 XX, returns to stmt_loop
+    call next_token
+    cmp ax, TokenKind.CLOSE_BRACE
+    je ._ret
+    cmp ax, TokenKind.ASM_START
+    je _asm ; JUMPS (not return) to stmt_loop
+    push _block
+    cmp ax, TokenKind.COMMENT
+    jne ._no_comment
+    ._inc:
+        lodsb
+        cmp al, 0x0A
+        jne ._inc
+    ._ret:
+    ret
+    ._no_comment:
+    cmp ax, TokenKind.IF_START
+    je _if_state ; returns to _block
+    cmp ax, TokenKind.WHILE_START
+    je _while ; returns to _block
+    cmp ax, TokenKind.RETURN
+    mov dl, 0xC3
+    je mov_bx_action.shared ; write C3 XX, returns to stmt_loop
 
-        cmp ax, TokenKind.STAR ; everything that starts with a * is `*ptr = expr`
-        jne ._next1
+    cmp ax, TokenKind.STAR ; everything that starts with a * is `*ptr = expr`
+    jne ._next1
 
-        call next_token ; get the ident to write to
-        push cx
-        call next_token ; eat the =
-        pop cx
-        push mov_bx_deref_action
-        jmp assign_expr_common ; returns to stmt_loop
-
-        ._next1:
-        push mov_bx_action
-        push cx ; save the used ident/function
-        ; if the statement is not an if, while, asm, return, or `*ptr = expr`, it's either an assignment or a function call
-        ; this requires looking at the next token to see if it is `();` or `=`.
-        call next_token
-        pop cx
-        cmp ax, TokenKind.FN_CALL
-        jne assign_expr_common ; returns to stmt_loop
-
-        mov dx, 0xD3FF ; call bx (note: little endian)
-        ret ; returns to mov_bx_action, which returns to top of loop
-
-; cx contains the addr to write to on call
-assign_expr_common:
+    call next_token ; get the ident to write to
+    push mov_bx_deref_action
     push cx
+    call next_token ; eat the =
+    jmp assign_expr_common ; returns to _block
+
+    ._next1:
+    push mov_bx_action
+    push cx ; save the used ident/function
+    ; if the statement is not an if, while, asm, return, or `*ptr = expr`, it's either an assignment or a function call
+    ; this requires looking at the next token to see if it is `();` or `=`.
+    call next_token
+    cmp ax, TokenKind.FN_CALL
+    jne assign_expr_common ; returns to _block
+
+    pop cx
+    mov dx, 0xD3FF ; call bx (note: little endian)
+    ret ; returns to mov_bx_action, which returns to _block
+
+;; the addr to write to must be pushed before calling
+assign_expr_common:
     call _expr
     pop cx
     mov dx, 0x0789 ; mov word [bx], ax
@@ -200,36 +197,36 @@ mov_bx_action:
     .end:
     ret
 
-; mov bx, <ADDR>
-; mov bx, word [bx]
-; <2 BYTES>
-; cx must hold the address to load into bx, and dx must hold the final 2 bytes to write
+;; mov bx, <ADDR>
+;; mov bx, word [bx]
+;; <2 BYTES>
+;; cx holds the addr to deref
+;; dx holds the last two bytes to write
 mov_bx_deref_action:
     push dx
     mov dx, 0x1F8B ; mov bx, word [bx]
     call mov_bx_action
-    pop dx
-    jmp mov_bx_action.shared ; tail call
+    pop ax
+    stosw
+    ret
 
 _unary:
     call next_token
     mov bp, cx               ; store the ident value in bp (zero for integers)
-    ; some things use this, save space
-    mov dx, 0x078B ; mov ax, word [bx] (note: little endian)
+    ;; reading the value of a variable and dereferencing a pointer use this
+    mov dx, 0x078B ; mov ax, word [bx]
 
     ;; parens are a unary expression and parse a sub-expression
     cmp ax, TokenKind.OPEN_PAREN
-    jne ._no_paren
-    jmp _expr                  ; eats the close paren (tail call)
+    je _expr                    ; also eats the close paren
 
-    ._no_paren:
     cmp ax, TokenKind.STAR
     je ._star
 
-    ; something is an ident if it has a non-zero entry in the ident map
-    ; otherwise it's considered to be a number
+    ;; if it's not a special token and it has a 0 in the ident map, it's an integer literal
+    ;; everything else is considered to be an ident to be used as a variable
     jcxz ._num
-    ._ident: jmp mov_bx_action ; tail call
+    jmp mov_bx_action           ; tail call
 
     ; mov bx, <CONST>
     ; xchg ax, bx
@@ -257,7 +254,7 @@ _expr:
     je mov_bx_action.end
 
     ; codegen the RHS unary and get the LHS in ax and RHS in cx
-    push bp ; the addr of the ident in the program memory
+    push bp ; the addr of the unary lhs in the program memory
     push ax ; store the binop ident
     ; the previous unary codegen put something in ax already, so save it, emit another unary and then restore it
     mov al, 0x50 ; push ax
@@ -267,7 +264,7 @@ _expr:
     stosw
 
     pop ax
-    pop dx ; move addr to dx
+    pop dx ; move addr of lhs to dx
 
     ; NOTE: at this point, if it's not a semicolon, the token must be a binop token
     ; the binop tokens all have unique low bytes, so only that is compared
@@ -344,8 +341,10 @@ next_token:
     lodsb
     cmp al, 0x00 ; if a 0 byte is found at the start of a token, return EoF
     jne .no_end
-    ; all well formed programs end with `}`, which will set gs to 0x1000
-    mov ax, word gs:[0x07C8] ; gets main's address
+    ;; all well formed programs end with `}`, which will set gs to 0x1000
+    ;; jmp [gs:0x07C8] is one byte shorter, but since i cant fit addr-of,
+    ;; put the addr of main in ax when jumping
+    mov ax, word [gs:0x07C8]    ; 0x1000:0x07C8 holds main's address
     jmp ax
 
     .no_end:

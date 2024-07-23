@@ -320,8 +320,6 @@ void read_sector (){
 }
 
 void write_sector (){
-  c = 87 ;
-  print_char ();
   _io_ax = 769 ;
   disk_io ();
 }
@@ -386,10 +384,6 @@ void open_file (){
   // read cluster number and load that first cluster into memory
   open_file_metadata = open_file_metadata + 6 ;
   open_file_fat_cluster = * open_file_metadata ;
-  c = 79 ;
-  print_char ();
-  print_hex_val = open_file_fat_cluster ;
-  println_hex ();
   io_lba = ( first_data_offset + open_file_fat_cluster ) - 2 ;
   read_sector ();
 
@@ -460,11 +454,6 @@ void allocate_new_cluster (){
   //          <global> next_cluster - always 0xFFFF
   next_fat_cluster ();
 
-  c = 65 ;
-  print_char ();
-  print_hex_val = next_fat_idx ;
-  println_hex ();
-
   next_cluster = next_fat_idx ;
   next_cluster_set ();
   io_lba = ( first_data_offset + next_fat_idx ) - 2 ;
@@ -524,6 +513,12 @@ void update_directory (){
   _update_dir_ptr = tmp + 2048 ;
   io_lba = root_dir_offset ;
   while( tmp < _update_dir_ptr ){
+    c = 68 ;
+    print_char ();
+    print_hex_val = tmp ;
+    print_hex ();
+    print_hex_val = io_lba ;
+    println_hex ();
     memcpy_src = tmp ;
     memcpy_dst = io_buf ;
     memcpy_count = 256 ;
@@ -575,9 +570,6 @@ void file_length_set (){
   //   <global> file_length - the length to set
   // RETURNS: NONE
 
-  c = 83 ;
-  print_char ();
-
   // follow the FAT chain to set it up properly
   _set_file_count = 0 ;
   _set_file_ptr = open_file_metadata + 6 ;
@@ -602,8 +594,6 @@ void file_length_set (){
 
   if( 1 < next_cluster ){
     // if there's still clusters remaining in the chain, free them
-    c = 84 ;
-    print_char ();
     cluster = next_cluster ;
     free_fat_chain ();
     // set the last used cluster to point to EoF
@@ -619,6 +609,44 @@ void file_length_set (){
 
   update_directory ();
   update_fat ();
+}
+
+int* create_file_name ;
+int* _create_file_ptr ;
+void create_file (){
+  // creates a file with the specified name and zero length, and then opens it
+  // ARGUMENTS: FS STATE
+  //            <global> create_file_name - the 8.3 null terminated file name to create
+
+  // find an open entry in the directory by looking for a file that has cluster 0
+  _create_file_ptr = fat16_root_data + 6 ;
+  while( * _create_file_ptr != 0 ){
+    _create_file_ptr = _create_file_ptr + 8 ;
+  }
+  print_hex_val = _create_file_ptr ;
+  println_hex ();
+
+  // copy the name
+  memcpy_src = create_file_name ;
+  memcpy_dst = _create_file_ptr - 6 ;
+  memcpy_count = 6 ;
+  memcpy ();
+
+  next_fat_cluster ();
+  * _create_file_ptr = next_fat_idx ;
+  cluster = next_fat_idx ;
+  next_cluster = 65535 ;
+  next_cluster_set ();
+
+  // zero length
+  _create_file_ptr = _create_file_ptr + 1 ;
+  * _create_file_ptr = 0 ;
+
+  update_directory ();
+  update_fat ();
+
+  open_file_metadata = _create_file_ptr - 7 ;
+  open_file ();
 }
 
 int* write_file_buf ;
@@ -662,10 +690,6 @@ void write_file (){
   }
 
   _write_file_cluster = open_file_fat_cluster ;
-  c = 119 ;
-  print_char ();
-  print_hex_val = _write_file_cluster ;
-  println_hex ();
   // don't do this alignment write if it's not needed
   if( memcpy_count != 0 ){
     memcpy_src = write_file_buf ;
@@ -675,24 +699,17 @@ void write_file (){
     write_file_count = write_file_count - memcpy_count ;
     memcpy ();
     io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
-    print_hex_val = io_lba ;
-    println_hex ();
-
     write_sector ();
+    cluster = _write_file_cluster ;
+    next_cluster_get ();
+    _write_file_cluster = next_cluster ;
   }
 
   while( 0 < write_file_count ){
-    cluster = _write_file_cluster ;
-    print_hex_val = _write_file_cluster ;
-    print_hex ();
-    next_cluster_get ();
-    print_hex_val = next_cluster ;
-    println_hex ();
-    _write_file_cluster = next_cluster ;
-    io_lba = ( first_data_offset + next_cluster ) - 2 ;
-    read_sector ();
+    io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
     print_hex_val = io_lba ;
     println_hex ();
+    read_sector ();
     memcpy_src = write_file_buf ;
     memcpy_dst = io_buf ;
     memcpy_count = write_file_count ;
@@ -701,9 +718,13 @@ void write_file (){
       memcpy_count = 256 ;
     }
     write_file_buf = write_file_buf + memcpy_count ;
-    write_file_count = write_file_count - memcpy_count ;
+    write_file_count = write_file_count - ( memcpy_count << 1 ) ;
     memcpy ();
     write_sector ();
+
+    cluster = _write_file_cluster ;
+    next_cluster_get ();
+    _write_file_cluster = next_cluster ;
   }
 }
 
@@ -825,6 +846,8 @@ void init_fs (){
     _read_root_dirent_status = local_val ;
     // status 2 is end of directory
     if( _read_root_dirent_status == 2 ){
+        // 0x6000
+      io_buf = 24576 ;
       // 0x8000
       fat16_root_data = 32768 ;
       return;
@@ -857,10 +880,15 @@ void init_fs (){
     }
   }
 
+  // 0x6000
+  io_buf = 24576 ;
   // 0x8000
   fat16_root_data = 32768 ;
 }
 
+int* main_addr ;
+
+int* _fname ;
 int bin_lba ;
 void backup_and_overwrite (){
   // saves the following data as the first three files on the root directory, in order:
@@ -868,14 +896,23 @@ void backup_and_overwrite (){
   //  - the original boot sector that acts as a compiler
   // then writes a new boot sector to the drive
 
-  // first file on the fs is at index 0
-  local_val = fat16_root_data ;
-  push_local ();
-  find_file ();
-  pop_local ();
-  // TODO: handle the file not existing
-  open_file_metadata = local_val ;
-  open_file ();
+  // create the first file with name "PROGRAM .BIN\0"
+  // 0x0F00
+  _fname = 3840 ;
+  * _fname = 21072 ;
+  _fname = _fname + 1 ;
+  * _fname = 18255 ;
+  _fname = _fname + 1 ;
+  * _fname = 16722 ;
+  _fname = _fname + 1 ;
+  * _fname = 8269 ;
+  _fname = _fname + 1 ;
+  * _fname = 18754 ;
+  _fname = _fname + 1 ;
+  * _fname = 78 ;
+
+  create_file_name = _fname - 5 ;
+  create_file ();
 
   // save the lba of the binary to place in the boot sector
   open_file_metadata = open_file_metadata + 6 ;
@@ -889,14 +926,24 @@ void backup_and_overwrite (){
   write_file_offset = 0 ;
   write_file ();
 
-  // second file on the fs is at index 1
-  local_val = fat16_root_data + 8 ;
-  push_local ();
-  find_file ();
-  pop_local ();
-  // TODO: handle the file not existing
-  open_file_metadata = local_val ;
-  open_file ();
+  // save the old boot sector in the second file on the fs
+  // "BOOT    .BIN\0"
+  // 0x0F00
+  _fname = 3840 ;
+  * _fname = 20290 ;
+  _fname = _fname + 1 ;
+  * _fname = 21583 ;
+  _fname = _fname + 1 ;
+  * _fname = 8224 ;
+  _fname = _fname + 1 ;
+  * _fname = 8224 ;
+  _fname = _fname + 1 ;
+  * _fname = 18754 ;
+  _fname = _fname + 1 ;
+  * _fname = 78 ;
+
+  create_file_name = _fname - 5 ;
+  create_file ();
 
   // the boot sector is at 0x7C00-0x7DFF (inclusive)
   write_file_buf = 31744 ;
@@ -923,21 +970,21 @@ void backup_and_overwrite (){
   tmp = tmp + 1 ;
   * tmp = 13960 ;
   tmp = tmp + 1 ;
-  * tmp = 31802 ;
+  * tmp = 31804 ;
   tmp = tmp + 1 ;
   * tmp = 51336 ;
   tmp = tmp + 1 ;
   * tmp = 16164 ;
   tmp = tmp + 1 ;
-  * tmp = 15266 ;
+  * tmp = 15778 ;
   tmp = tmp + 1 ;
   * tmp = 41340 ;
   tmp = tmp + 1 ;
-  * tmp = 32188 ;
+  * tmp = 32186 ;
   tmp = tmp + 1 ;
   * tmp = 14070 ;
   tmp = tmp + 1 ;
-  * tmp = 31803 ;
+  * tmp = 31805 ;
   tmp = tmp + 1 ;
   * tmp = 57736 ;
   tmp = tmp + 1 ;
@@ -947,7 +994,7 @@ void backup_and_overwrite (){
   tmp = tmp + 1 ;
   * tmp = 5770 ;
   tmp = tmp + 1 ;
-  * tmp = 31802 ;
+  * tmp = 31804 ;
   tmp = tmp + 1 ;
   * tmp = 49918 ;
   tmp = tmp + 1 ;
@@ -969,8 +1016,10 @@ void backup_and_overwrite (){
   tmp = tmp + 1 ;
   * tmp = 65138 ;
   tmp = tmp + 1 ;
-  * tmp = 65259 ;
-  tmp = tmp + 196 ;
+  * tmp = 9983 ;
+  tmp = tmp + 1 ;
+  * tmp = 32188 ;
+  tmp = tmp + 195 ;
   * tmp = 2 ;
   tmp = tmp + 1 ;
   * tmp = 4096 ;
@@ -982,11 +1031,15 @@ void backup_and_overwrite (){
   * tmp = 16383 ;
   tmp = tmp + 26 ;
   * tmp = 43605 ;
+
   // END GENERATED CODE
 
-  // 0x63BC - location of the LBA to fill in
-  tmp = 25532 ;
+  // 0x63BA - location of the LBA to fill in
+  // 0x63BC - address of main to jump to
+  tmp = 25530 ;
   * tmp = bin_lba ;
+  tmp = tmp + 1 ;
+  * tmp = main_addr ;
 
   // 0x6200
   memcpy_src = 25088 ;
@@ -1001,10 +1054,13 @@ int delay ;
 int main (){
   // set up stack pointer to point somewhere nicer - mov sp, 0x0F00
   asm(" .byte 188 ; .byte 0 ; .byte 15 ; ");
+  // NONSTANDARD: extract the address of main from ax
+  // mov word [0x1000], ax
+  asm(" .byte 163 ; .byte 0 ; .byte 16 ; ");
+  main_addr = _ax ;
 
   // 0x7200
   local_stack = 29184 ;
-
   // 0x0F00 - 16 bytes
   dirent_file_name = 3840 ;
 
@@ -1017,5 +1073,6 @@ int main (){
 
   backup_and_overwrite ();
 
-  asm(" .byte 235 ; .byte 254 ; ");
+  while( 1 == 1 ){
+  }
 }
