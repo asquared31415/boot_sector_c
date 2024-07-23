@@ -35,6 +35,9 @@ main:
 max_head_num: db 0x00
 max_sector_num: db 0x00
 
+TIMES 0x1B8-($-$$) db 0x00
+MAGIC_NUM:  dw 0x6699
+
 TIMES 0x1BA-($-$$) db 0x00
 
 ;; TO BE FILLED

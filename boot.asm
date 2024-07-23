@@ -376,7 +376,6 @@ next_token:
     ; we don't restore bx here, because we need to multiply by 2 anyway, the rcl did that
     ; really this whole thing just forms a 17 bit address with a constant offset
     ; of 0x1_0000, if you think about it
-MAGIC_SIGNATURE:
     mov cx, word gs:[bx]
     ret
 
