@@ -6,15 +6,12 @@ org 0x7C00 ; BIOS drops us at this address
 main:
     ; clear ident->addr map
     xor ax, ax
-    mov ds, ax ; ds is used by lods
-    mov es, ax ; es used by stos
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
-    push cx
     mov di, 0xFFFF ; |
     inc edi        ; | start pointer is 0x1_0000
     a32 rep stosd
-    pop di         ; program buffer for compiler
-    mov si, di
+
+    mov si, ax                  ; read source from fs:0000
 
     ; Initialize serial
     mov dx, COM1_PORT + 3
@@ -38,6 +35,12 @@ main:
     dec dx ; PORT + 2
     mov al, 0b0000_0111 ; Enable FIFO and clear the FIFO buffers
     out dx, al
+    ;; ax holds 0x0007 shift it to 0x7000
+    ;; that's an acceptable segment for the program source code
+    ;; it's the end of conventional low memory
+    shl ax, 12
+    mov es, ax                  ; used for stos, will be restored
+    mov fs, ax                  ; used for lods
 
     ._load_program:
         mov dl, (COM1_PORT + 5) & 0xFF ; status port
@@ -50,6 +53,7 @@ main:
         or al, al ; exit when a 0x00 byte is read
         jnz ._load_program
 
+    mov es, cx
     ; di contains the current index to write to
     mov di, PROGRAM_MEM_START
 
@@ -105,7 +109,7 @@ _block:
     cmp ax, TokenKind.COMMENT
     jne ._no_comment
     ._inc:
-        lodsb
+        fs lodsb
         cmp al, 0x0A
         jne ._inc
     ._ret:
@@ -338,7 +342,7 @@ next_token:
     ; bx holds the accumulated 16 bit identifier
     xor bx, bx
     ._tokenizer_start:
-    lodsb
+    fs lodsb
     cmp al, 0x00 ; if a 0 byte is found at the start of a token, return EoF
     jne .no_end
     ;; all well formed programs end with `}`, which will set gs to 0x1000
@@ -358,7 +362,7 @@ next_token:
         add bx, ax  ; | add the character in a way that ASCII numbers end up working out
         sub bx, '0' ; | to be their numerical value
 
-        lodsb
+        fs lodsb
         ; at this point, if a space or lower is encountered, end
         cmp al, " "
         ja ._tokenizer_add_char

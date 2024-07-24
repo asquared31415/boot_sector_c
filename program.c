@@ -1079,8 +1079,6 @@ int main (){
   print_hex_val = * magic_num_ptr ;
   println_hex ();
 
-  asm(" .byte 235 ; .byte 254 ; ");
-
   // 0x6699
   if( * magic_num_ptr != 26265 ){
     backup_and_overwrite ();

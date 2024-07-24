@@ -4,8 +4,9 @@
 0x0_6000-0x0_7BFF: stack pointer is somewhere in here
 0x0_7C00-0x0_7DFF: boot sector
 0x0_7E00-0x0_7FFF: unallocated
-0x0_8000-0x0_FFFF: program source
+0x0_8000-0x0_FFFF: unallocated
 0x1_0000-0x2_FFFF: compiler ident->mem table
+0x7_0000-0x7_FFFF: program source code
 
 // ONCE IN COMPILER:
 0x0_0000-0x0_04FF: BIOS (DO NOT USE)
