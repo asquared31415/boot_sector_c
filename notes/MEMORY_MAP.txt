@@ -20,5 +20,6 @@
 0x0_7E00-0x0_7FFF: unallocated
 0x0_8000-0x0_87FF: FAT16 root data structures
 0x0_8800-0x0_89FF: file allocation table
-0x0_8A00-0x0_FFFF: unallocated RAM
+0x0_8A00-0x0_AFFF: unallocated RAM
+0x0_B000-0x0_FFFF: text editor memory
 0x1_0000-

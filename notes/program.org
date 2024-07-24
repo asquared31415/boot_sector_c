@@ -1,0 +1,64 @@
+* Filesystem
+** Layout on Disk
+*** Bios Parameter Block
+    | OEMID                  | "bootc   " |
+    | Bytes per Sector       |        512 |
+    | Sectors per Cluster    |          1 |
+    | Reserved Sectors       |          1 |
+    | File Allocation Tables |          2 |
+    | Root Directory Entries |        128 |
+    | Total Sector Count     |     0x3FFF |
+    | Media Descriptor       |       0xF8 |
+    | Sectors per FAT        |       0x40 |
+    | Sectors per Track      |       0x3E |
+    | Heads                  |       0x7C |
+    | Hidden Sectors         |       0x01 |
+    | Large Sector Count     | 0 (unused) |
+
+*** Calculated Properties
+    *all offsets are relative to the start of the /partition/ not the start of the disk*
+    | FAT1 Offset           | 0x01 |
+    | FAT2 Offset           | 0x41 |
+    | Root Directory Offset | 0x81 |
+    | First Data Offset     | 0x89 |
+    
+** FAT16 fs data in memory:
+  - in memory there's a copy of the root directory data but organized in a way that's
+    easier to process for fs operations.
+  - fs structures are in a list fat16_root_data, and structures are identified by
+    their file name
+  - fat16_root_data is 0x4000 bytes in size, 0x80 root entries times 0x10 bytes per entry
+
+  each fs structure contains:
+  | offsets | data                                     |
+  |---------+------------------------------------------|
+  |   0..12 | file name in 8.3 format, null terminated |
+  |  12..14 | start cluster of the file                |
+  |  14..16 | size of the file in bytes                |
+
+
+* Program Tasks
+ - [X] FAT16 Driver
+    - [X] read
+    - [X] write
+    - [X] create  
+ - [X] Bootstrap
+    - [X] stage0 -> stage1
+      - [X] Save program binary
+      - [X] Save original boot sector
+      - [X] Replace boot sector with binary loader
+ - [ ] Line Editor
+
+
+* Line Editor
+128 byte max line size (including newline)
+Owns one large buffer of text, does not split it into lines at a pre-defined interval
+  - most lines are less than 128 bytes, so doing so would waste most of memory
+To track lines, there's an external doubly linked list of metadata about lines
+|         offset | data                                           |
+|----------------+------------------------------------------------|
+|           0..2 | pointer to previous line, or null              |
+|           2..4 | pointer to next line, or null                  |
+|           4..7 | pointer to the contents of the line            |
+| 7..8 bits 0..7 | the length of the line                         |
+|     7..8 bit 7 | 1 if the line is free, 0 if the line is in use |
