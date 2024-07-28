@@ -207,20 +207,33 @@ void println_hex (){
   print_char ();
 }
 
-int* print_string_src ;
-int _print_string_byte ;
+int* print_str_ptr ;
+int _print_str_b ;
 void print_string (){
   // prints a NULL terminated string to the serial output
   // ARGUMENTS: <global> print_string_src - pointer to the start of the string to print
   // RETURNS: NONE
-  _print_string_byte = * print_string_src & 255 ;
-  while( _print_string_byte != 0 ){
-    c = _print_string_byte ;
+  _print_str_b = * print_str_ptr & 255 ;
+  while( _print_str_b != 0 ){
+    c = _print_str_b ;
     print_char ();
     // hack to get a 1 byte offset
-    _print_string_byte = print_string_src ;
-    print_string_src = _print_string_byte + 1 ;
-    _print_string_byte = * print_string_src & 255 ;
+    _print_str_b = print_str_ptr ;
+    print_str_ptr = _print_str_b + 1 ;
+    _print_str_b = * print_str_ptr & 255 ;
+  }
+}
+
+int print_str_len ;
+void print_string_len (){
+  while( 0 < print_str_len ){
+    _print_str_b = * print_str_ptr & 255 ;
+    c = _print_str_b ;
+    print_char ();
+    // hack to get a 1 byte offset
+    _print_str_b = print_str_ptr ;
+    print_str_ptr = _print_str_b + 1 ;
+    print_str_len = print_str_len - 1 ;
   }
 }
 
@@ -854,7 +867,7 @@ void init_fs (){
     }
     // FIXME: implement status 1: vacant entry by not printing
     if( _read_root_dirent_status == 0 ){
-      print_string_src = fat16_root_data - 8 ;
+      print_str_ptr = fat16_root_data - 8 ;
       print_string ();
       c = 32 ;
       print_char ();
@@ -1051,6 +1064,221 @@ void backup_and_overwrite (){
   write_sector ();
 }
 
+int is ;
+void is_num (){
+  // returns whether a character is numeric
+  is = 1 ;
+  if( ( c < 48 ) | ( 57 < c ) ){
+    is = 0 ;
+  }
+}
+  
+
+int num ;
+void read_num (){
+  num = 0 ;
+  while( 1 == 1 ){
+    read_char ();
+    is_num ();
+    if( is != 1 ){
+      return;
+    }
+    // num = 10 * num
+    num = ( ( num << 2 ) + num ) << 1 ;
+    num = num + ( c - 48 ) ;
+  }
+}
+
+int _next_line ;
+int* active_line ;
+
+void advance_lines (){
+  // advances num lines (signed), clamped to the start or end
+  // num has unspecified value after this
+
+  // positive advance
+  while( 0 < num ){
+    active_line = active_line + 1 ;
+    _next_line = * active_line ;
+    if( _next_line != 0 ){
+      active_line = _next_line ;
+    }
+    // don't advance if at end of lines
+    if( _next_line == 0 ){
+      active_line = active_line - 1 ;
+      return;
+    }
+    num = num - 1 ;
+  }
+
+  // negative advance
+  while( num < 0 ){
+    _next_line = * active_line ;
+    if( _next_line != 0 ){
+      active_line = _next_line ;
+    }
+    // don't advance if at start of lines
+    if( _next_line == 0 ){
+      return;
+    }
+    num = num + 1 ;
+  }
+}
+
+
+int text_editor_state ;
+int* text_buf ;
+int* metadata ;
+int* _prev_metadata ;
+
+int input_c ;
+int _handled ;
+void handle_input (){
+  read_char ();
+  // need this to not change during prints
+  input_c = c ;
+  _handled = 0 ;
+
+  // command state
+  if( text_editor_state == 0 ){
+    // \n and \r at the start of a line should just be ignored in command mode
+    if( ( input_c == 10 ) | ( input_c == 13 ) ){
+      _handled = 1 ;
+    }
+    // p
+    if( input_c == 112 ){
+      // TODO: read length from the active line (it will always be in use)
+      // and print it
+      active_line = active_line + 3 ;
+      print_str_len = * active_line >> 8 ;
+      active_line = active_line - 1 ;
+      print_str_ptr = * active_line ;
+      print_string_len ();
+      active_line = active_line - 2 ;
+      _handled = 1 ;
+    }
+    // + or -
+    if( ( input_c == 43 ) | ( input_c == 45 ) ){
+      read_num ();
+      if( num == 0 ){
+        num = 1 ;
+      }
+      if( input_c == 45 ){
+        num = 0 - num ;
+      }
+      advance_lines ();
+      print_hex_val = active_line ;
+      println_hex ();
+      _handled = 1 ;
+    }
+    // i - enters line insertion mode
+    if( input_c == 105 ){
+      text_editor_state = 1 ;
+      _handled = 1 ;
+    }
+
+    if( _handled == 0 ){
+      // unknown input
+      // ?
+      c = 63 ;
+      print_char ();
+    }
+  }
+  // insert mode
+  if( ( _handled == 0 ) & ( text_editor_state == 1 ) ){
+    c = 73 ;
+    print_char ();
+  }
+}
+
+
+int* _line_start ;
+int* _p ;
+int _p_i ;
+int _len ;
+
+void text_editor (){
+  // 0x9000
+  metadata = 36864 ;
+  // 0xB000
+  text_buf = 45056 ;
+  _prev_metadata = 0 ;
+
+  // clear both metadata and text
+  memset_ptr = metadata ;
+  memset_count = 14336 ;
+  memset_val = 0 ;
+  memset ();
+
+  // command state
+  text_editor_state = 0 ;
+
+  open_file_metadata = fat16_root_data ;
+  open_file ();
+
+  // 0x6000
+  memcpy_src = io_buf ;
+  memcpy_dst = text_buf ;
+  memcpy_count = 256 ;
+  memcpy ();
+
+  _len = 0 ;
+  _p = text_buf ;
+  _line_start = _p ;
+  while( _p < ( text_buf + 256 ) ){
+    _len = _len + 1 ;
+    _p_i = * _p & 255 ;
+    if( _p_i == 10 ){
+      c = 78 ;
+      print_char ();
+      print_hex_val = _p ;
+      print_hex ();
+      print_hex_val = _len ;
+      println_hex ();
+
+      * metadata = _prev_metadata ;
+      // update next pointer of previous line
+      if( _prev_metadata != 0 ){
+        _prev_metadata = _prev_metadata + 1 ;
+        * _prev_metadata = metadata ;
+      }
+      metadata = metadata + 1 ;
+      * metadata = 0 ;
+      metadata = metadata + 1 ;
+      * metadata = _line_start ;
+      metadata = metadata + 1 ;
+      * metadata = _len << 8 ;
+      metadata = metadata + 1 ;
+
+      _prev_metadata = metadata - 4 ;
+      _len = 0 ;
+      _p_i = _p ;
+      _line_start = _p_i + 1 ;
+    }
+    _p_i = _p ;
+    _p = _p_i + 1 ;
+  }
+
+  // 0x9000
+  metadata = 36864 ;
+  active_line = metadata ;
+  while( metadata != 0 ){
+    print_hex_val = metadata ;
+    print_hex ();
+    metadata = metadata + 2 ;
+    print_str_ptr = * metadata ;
+    metadata = metadata + 1 ;
+    print_str_len = * metadata >> 8 ;
+    print_string_len ();
+    metadata = metadata - 2 ;
+    metadata = * metadata ;
+  }
+
+  while( 1 == 1 ){
+    handle_input ();
+  }
+}
+
 int delay ;
 int* magic_num_ptr ;
 int main (){
@@ -1083,6 +1311,8 @@ int main (){
   if( * magic_num_ptr != 26265 ){
     backup_and_overwrite ();
   }
+
+  text_editor ();
 
   while( 1 == 1 ){
   }
