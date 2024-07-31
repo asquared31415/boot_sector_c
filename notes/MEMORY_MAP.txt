@@ -22,5 +22,5 @@
 0x0_8800-0x0_89FF: file allocation table
 0x0_8A00-0x0_8FFF: unallocated RAM
 0x0_9000-0x0_AFFF: text editor line metadata
-0x0_B000-0x0_FFFF: text editor text buffer
-0x1_0000-
+0x0_B000-0x0_FFFF: unallocated
+0x1_0000-0x1_FFFF: text editor text buffer

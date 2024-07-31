@@ -40,7 +40,7 @@ void write_local (){
 int gs ;
 int* ptr ;
 int ptr_val ;
-void wide_pointer_read (){
+void wide_ptr_read (){
   // reads a word at the specified wide pointer
   // used to access outside the 16 bit pointer range
   // ARGUMENTS:
@@ -55,6 +55,22 @@ void wide_pointer_read (){
   // mov word [0x1000], ax
   _ax = ptr ;
   asm(" .byte 147 ; .byte 101 ; .byte 139 ; .byte 7 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  ptr_val = _ax ;
+}
+
+void wide_ptr_write (){
+  // write a word at the specified wide pointer
+  // used to access outside the 16 bit pointer range
+  _ax = gs ;
+  // mov gs, ax
+  asm(" .byte 142 ; .byte 232 ; ");
+  _ax = ptr ;
+  // push ax
+  asm(" .byte 80 ; ");
+  _ax = ptr_val ;
+  // pop bx
+  // mov word gs:[bx], ax
+  asm(" .byte 91 ; .byte 101 ; .byte 137 ; .byte 7 ; ");
 }
 
 int* tmp ;
@@ -88,6 +104,18 @@ void memcpy (){
   }
 }
 
+void wide_memcpy (){
+  // copies memcpy_count WORDS of data from memcpy_src to gs:memcpy_dst
+  // the regions of memory must not overlap
+  _memcpy_end = memcpy_src + memcpy_count ;
+  while( memcpy_src < _memcpy_end ){
+    ptr = memcpy_dst ;
+    ptr_val = * memcpy_src ;
+    wide_ptr_write ();
+    memcpy_src = memcpy_src + 1 ;
+    memcpy_dst = memcpy_dst + 1 ;
+  }
+}
 
 int strcmp_lhs ;
 int strcmp_rhs ;
@@ -1125,12 +1153,30 @@ void advance_lines (){
   }
 }
 
+int _print_line_len ;
+int _print_line_ptr ;
+void print_line (){
+  // prints the active line
+  active_line = active_line + 3 ;
+  _print_line_len = * active_line >> 8 ;
+  gs = ( * active_line & 255 ) << 8 ;
+  active_line = active_line - 1 ;
+  _print_line_ptr = * active_line ;
+  active_line = active_line - 2 ;
+  while( 0 < _print_line_len ){
+    ptr = _print_line_ptr ;
+    wide_ptr_read ();
+    c = ptr_val & 255 ;
+    print_char ();
+    _print_line_ptr = _print_line_ptr + 1 ;
+    _print_line_len = _print_line_len - 1 ;
+  }
+}
 
 int text_editor_state ;
 int* text_buf ;
 int* metadata ;
 int* _prev_metadata ;
-
 int input_c ;
 int _handled ;
 void handle_input (){
@@ -1149,12 +1195,7 @@ void handle_input (){
     if( input_c == 112 ){
       // TODO: read length from the active line (it will always be in use)
       // and print it
-      active_line = active_line + 3 ;
-      print_str_len = * active_line >> 8 ;
-      active_line = active_line - 1 ;
-      print_str_ptr = * active_line ;
-      print_string_len ();
-      active_line = active_line - 2 ;
+      print_line ();
       _handled = 1 ;
     }
     // + or -
@@ -1200,8 +1241,8 @@ int _len ;
 void text_editor (){
   // 0x9000
   metadata = 36864 ;
-  // 0xB000
-  text_buf = 45056 ;
+  // text at 0x1_0000
+  text_buf = 0 ;
   _prev_metadata = 0 ;
 
   // clear both metadata and text
@@ -1218,16 +1259,21 @@ void text_editor (){
 
   // 0x6000
   memcpy_src = io_buf ;
+  // 0x1000
+  gs = 4096 ;
   memcpy_dst = text_buf ;
   memcpy_count = 256 ;
-  memcpy ();
+  wide_memcpy ();
 
   _len = 0 ;
   _p = text_buf ;
   _line_start = _p ;
   while( _p < ( text_buf + 256 ) ){
     _len = _len + 1 ;
-    _p_i = * _p & 255 ;
+    ptr = _p ;
+    // gs is still 0x1000 from the memcpy
+    wide_ptr_read ();
+    _p_i = ptr_val & 255 ;
     if( _p_i == 10 ){
       c = 78 ;
       print_char ();
@@ -1247,7 +1293,7 @@ void text_editor (){
       metadata = metadata + 1 ;
       * metadata = _line_start ;
       metadata = metadata + 1 ;
-      * metadata = _len << 8 ;
+      * metadata = ( _len << 8 ) | ( gs >> 8 ) ;
       metadata = metadata + 1 ;
 
       _prev_metadata = metadata - 4 ;
@@ -1262,17 +1308,6 @@ void text_editor (){
   // 0x9000
   metadata = 36864 ;
   active_line = metadata ;
-  while( metadata != 0 ){
-    print_hex_val = metadata ;
-    print_hex ();
-    metadata = metadata + 2 ;
-    print_str_ptr = * metadata ;
-    metadata = metadata + 1 ;
-    print_str_len = * metadata >> 8 ;
-    print_string_len ();
-    metadata = metadata - 2 ;
-    metadata = * metadata ;
-  }
 
   while( 1 == 1 ){
     handle_input ();
