@@ -206,6 +206,19 @@ void print_char (){
   outb ();
 }
 
+int int_div_lhs ;
+int int_div_rhs ;
+int int_div_quot ;
+int int_div_rem ;
+void int_div (){
+  int_div_quot = 0 ;
+  while( int_div_rhs < int_div_lhs ){
+    int_div_lhs = int_div_lhs - int_div_rhs ;
+    int_div_quot = int_div_quot + 1 ;
+  }
+  int_div_rem = int_div_lhs ;
+}
+
 int print_hex_val ;
 int _print_hex_nibble ;
 int _print_hex_count ;
@@ -233,6 +246,73 @@ void println_hex (){
   print_hex ();
   c = 10 ;
   print_char ();
+}
+
+int print_dec_val ;
+int _print_dec_c ;
+int _seen_zero ;
+void print_dec (){
+  if( print_dec_val < 0 ){
+    // -
+    c = 45 ;
+    print_char ();
+    print_dec_val = 0 - print_dec_val ;
+  }
+  _print_dec_c = 0 ;
+  while( print_dec_val != 0 ){
+    int_div_lhs = print_dec_val ;
+    int_div_rhs = 10 ;
+    int_div ();
+    local_val = int_div_rem ;
+    push_local ();
+    print_dec_val = int_div_quot ;
+    _print_dec_c = _print_dec_c + 1 ;
+  }
+
+  while( 0 < _print_dec_c ){
+    pop_local ();
+    c = local_val + 48 ;
+    print_char ();
+    _print_dec_c = _print_dec_c - 1 ;
+  }
+}
+
+void print_esc (){
+  // ESC
+  c = 27 ;
+  print_char ();
+  // [
+  c = 91 ;
+  print_char ();
+}
+
+int cursor_x ;
+int cursor_y ;
+void set_cursor_pos (){
+  print_esc ();
+  print_dec_val = cursor_y ;
+  print_dec ();
+  // ;
+  c = 59 ;
+  print_char ();
+  print_dec_val = cursor_x ;
+  print_dec ();
+  // H
+  c = 72 ;
+  print_char ();
+}
+
+void clear (){
+  print_esc ();
+  // 2
+  c = 50 ;
+  print_char ();
+  // J
+  c = 74 ;
+  print_char ();
+  cursor_x = 1 ;
+  cursor_y = 1 ;
+  set_cursor_pos ();
 }
 
 int* print_str_ptr ;
@@ -278,19 +358,6 @@ void get_drive_stats (){
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
   max_cylinder_num = ( ( _ax & 192 ) << 8 ) | ( ( _ax & 65280 ) >> 8 ) ;
   max_sector_num = _ax & 63 ;
-}
-
-int int_div_lhs ;
-int int_div_rhs ;
-int int_div_quot ;
-int int_div_rem ;
-void int_div (){
-  int_div_quot = 0 ;
-  while( int_div_rhs < int_div_lhs ){
-    int_div_lhs = int_div_lhs - int_div_rhs ;
-    int_div_quot = int_div_quot + 1 ;
-  }
-  int_div_rem = int_div_lhs ;
 }
 
 int mul_lhs ;
@@ -1092,6 +1159,8 @@ void backup_and_overwrite (){
   write_sector ();
 }
 
+int _p_i ;
+
 int is ;
 void is_num (){
   // returns whether a character is numeric
@@ -1101,7 +1170,6 @@ void is_num (){
   }
 }
   
-
 int num ;
 void read_num (){
   num = 0 ;
@@ -1117,8 +1185,34 @@ void read_num (){
   }
 }
 
+int* line ;
+int line_len ;
+void read_line (){
+  // 0x7E00
+  line = 32256 ;
+  line_len = 0 ;
+  // the first character was already read
+  while( line_len < 128 ){
+    * line = c ;
+    line_len = line_len + 1 ;
+    _p_i = line ;
+    line = _p_i + 1 ;
+    // exit on newline
+    if( c == 10 ){
+      line = 32256 ;
+      return;
+    }
+    read_char ();
+  }
+  // if the line count reaches 128 without a newline, truncate with one
+  * line = 10 ;
+  line = 32256 ;
+  // TODO: maybe eat until a newline is found?
+}
+
 int _next_line ;
 int* active_line ;
+int cursor_column ;
 
 void advance_lines (){
   // advances num lines (signed), clamped to the start or end
@@ -1156,13 +1250,12 @@ void advance_lines (){
 int _print_line_len ;
 int _print_line_ptr ;
 void print_line (){
-  // prints the active line
-  active_line = active_line + 3 ;
-  _print_line_len = * active_line >> 8 ;
-  gs = ( * active_line & 255 ) << 8 ;
-  active_line = active_line - 1 ;
-  _print_line_ptr = * active_line ;
-  active_line = active_line - 2 ;
+  line = line + 3 ;
+  _print_line_len = * line >> 8 ;
+  gs = ( * line & 255 ) << 8 ;
+  line = line - 1 ;
+  _print_line_ptr = * line ;
+  line = line - 2 ;
   while( 0 < _print_line_len ){
     ptr = _print_line_ptr ;
     wide_ptr_read ();
@@ -1173,30 +1266,169 @@ void print_line (){
   }
 }
 
+
+int _context_count ;
+int _context_done ;
+void print_editor (){
+  clear ();
+  
+  // prints the region of text around the active line
+  _context_count = 0 ;
+  _context_done = 0 ;
+  line = active_line ;
+  // print backwards context
+  while( ( _context_count < 10 ) & ( _context_done != 1 ) ){
+    if( * line == 0 ){
+      _context_done = 1 ;
+    }
+    if( * line != 0 ){
+      line = * line ;
+      _context_count = _context_count + 1 ;
+    }
+  }
+
+  while( 0 < ( _context_count + 11 ) ){
+    if( line != active_line ){
+      c = 32 ;
+      print_char ();
+      print_char ();
+    }
+    if( line == active_line ){
+      c = 62 ;
+      print_char ();
+      c = 32 ;
+      print_char ();
+    }
+    print_line ();
+    line = line + 1 ;
+    if( * line == 0 ){
+      return;
+    }
+    line = * line ;
+    _context_count = _context_count - 1 ;
+  }
+}
+
 int text_editor_state ;
 int* text_buf ;
 int* metadata ;
+int* first_line_meta ;
+int* text_buf_end ;
 int* _prev_metadata ;
+int _len ;
+int* alloc_line_meta ;
+int _alloc_line_c ;
+void insert_line (){
+  // args: line, line_len
+  // inserts before active_line
+
+  // FIXME: line count
+  _alloc_line_c = 0 ;
+  while( _alloc_line_c < 2048 ){
+     metadata = metadata + 3 ;
+    _len = * metadata >> 8 ;
+    // never allocated
+    if( _len == 128 ){
+      // set the length of the new line
+      // and gs to 0x1000
+      * metadata = ( line_len << 8 ) | 16 ;
+
+      // set the line metadata to point to the newly allocated line
+      metadata = metadata - 1 ;
+      * metadata = text_buf_end ;
+
+      // insert the line in the linked list
+      // make this line's next line be the active line
+      metadata = metadata - 1 ;
+      * metadata = active_line ;
+      // make the previous line for this line be the active line's previous line
+      metadata = metadata - 1 ;
+      * metadata = * active_line ;
+      // make the next line for the active line's previous line be this line
+      _prev_metadata = * metadata ;
+      if( _prev_metadata != 0 ){
+        _prev_metadata = _prev_metadata + 1 ;
+        * _prev_metadata = metadata ;
+      }
+      // make the active line's previous line be this line
+      * active_line = metadata ;
+      alloc_line_meta = metadata ;
+
+      // copy the line to the end of the text buffer
+      gs = 4096 ;
+      memcpy_src = line ;
+      memcpy_dst = text_buf_end ;
+      memcpy_count = line_len >> 1 ;
+      _p_i = text_buf_end ;
+      text_buf_end = _p_i + line_len ;
+      // odd number of bytes to copy, handle the first one specially
+      if( ( line_len & 1 ) == 1 ){
+        ptr = memcpy_dst ;
+        wide_ptr_read ();
+        // replace low 8 bits with first byte of line
+        ptr_val = ( ptr_val & 65280 ) | ( * line & 255 ) ;
+        wide_ptr_write ();
+        _p_i = memcpy_src ;
+        memcpy_src = _p_i + 1 ;
+        _p_i = memcpy_dst ;
+        memcpy_dst = _p_i + 1 ;
+      }
+      // copy the remaining bytes
+      wide_memcpy ();
+
+      // 0x9000
+      metadata = 36864 ;
+      return;
+    }
+    if( 128 < _len ){
+      // previously allocated, check if suitable
+      _len = _len & 127 ;
+      asm(" .byte 235 ; .byte 254 ; ");
+      // MAY NEED TO RETURN IF THE SLOT IS USED
+      // return;
+    }
+
+    metadata = metadata + 1 ;
+    _alloc_line_c = _alloc_line_c + 1 ;
+  }
+
+  // 0x9000
+  metadata = 36864 ;
+}
+
 int input_c ;
-int _handled ;
 void handle_input (){
-  read_char ();
-  // need this to not change during prints
-  input_c = c ;
-  _handled = 0 ;
+  // insert mode
+  if( text_editor_state == 1 ){
+    read_char ();
+    // ESC to exit insert mode
+    if( c == 27 ){
+      text_editor_state = 0 ;
+      return;
+    }
+    read_line ();
+
+    // TODO: put the line in a newly allocated line entry
+    insert_line ();
+    return;
+  }
 
   // command state
   if( text_editor_state == 0 ){
+    read_char ();
+    // need this to not change during prints
+    input_c = c ;
+
     // \n and \r at the start of a line should just be ignored in command mode
     if( ( input_c == 10 ) | ( input_c == 13 ) ){
-      _handled = 1 ;
+      return;
     }
     // p
     if( input_c == 112 ){
       // TODO: read length from the active line (it will always be in use)
       // and print it
-      print_line ();
-      _handled = 1 ;
+      print_editor ();
+      return;
     }
     // + or -
     if( ( input_c == 43 ) | ( input_c == 45 ) ){
@@ -1208,26 +1440,24 @@ void handle_input (){
         num = 0 - num ;
       }
       advance_lines ();
-      print_hex_val = active_line ;
-      println_hex ();
-      _handled = 1 ;
+      print_editor ();
+      return;
     }
     // i - enters line insertion mode
     if( input_c == 105 ){
+      // eat until newline
+      read_char ();
+      while( c != 10 ){
+        read_char ();
+      }
       text_editor_state = 1 ;
-      _handled = 1 ;
+      return;
     }
 
-    if( _handled == 0 ){
-      // unknown input
-      // ?
-      c = 63 ;
-      print_char ();
-    }
-  }
-  // insert mode
-  if( ( _handled == 0 ) & ( text_editor_state == 1 ) ){
-    c = 73 ;
+    // fall through to unknown input - ?
+    c = 63 ;
+    print_char ();
+    c = 10 ;
     print_char ();
   }
 }
@@ -1235,14 +1465,13 @@ void handle_input (){
 
 int* _line_start ;
 int* _p ;
-int _p_i ;
-int _len ;
 
 void text_editor (){
   // 0x9000
   metadata = 36864 ;
   // text at 0x1_0000
   text_buf = 0 ;
+  text_buf_end = 0 ;
   _prev_metadata = 0 ;
 
   // clear both metadata and text
@@ -1254,60 +1483,67 @@ void text_editor (){
   // command state
   text_editor_state = 0 ;
 
+  // set the length of every line to 0x80 - empty, never allocated
+  _alloc_line_c = 0 ;
+  metadata = metadata + 3 ;
+  // TODO: line count
+  while( _alloc_line_c < 2048 ){
+    // 0x8010 - free, zero len, gs 0x1000
+    * metadata = 32784 ;
+    metadata = metadata + 4 ;
+    _alloc_line_c = _alloc_line_c + 1 ;
+  }
+  // 0x9000
+  metadata = 36864 ;
+  active_line = metadata ;
+
+  // at the end of the file place an empty line to insert before
+  gs = 4096 ;
+  ptr = text_buf_end ;
+  ptr_val = 10 ;
+  wide_ptr_write ();
+  active_line = active_line + 1 ;
+  * active_line = 0 ;
+  active_line = active_line + 1 ;
+  * active_line = text_buf_end ;
+  active_line = active_line + 1 ;
+  // 0x0110 - len 1, gs 0x1000
+  * active_line = 272 ;
+
+  _p_i = text_buf_end ;
+  text_buf_end = _p_i + 1 ;
+  active_line = metadata ;
+
   open_file_metadata = fat16_root_data ;
   open_file ();
 
-  // 0x6000
-  memcpy_src = io_buf ;
-  // 0x1000
-  gs = 4096 ;
-  memcpy_dst = text_buf ;
-  memcpy_count = 256 ;
-  wide_memcpy ();
-
-  _len = 0 ;
-  _p = text_buf ;
-  _line_start = _p ;
-  while( _p < ( text_buf + 256 ) ){
-    _len = _len + 1 ;
-    ptr = _p ;
-    // gs is still 0x1000 from the memcpy
-    wide_ptr_read ();
-    _p_i = ptr_val & 255 ;
+  // TODO: read more than just one sector in
+  line_len = 0 ;
+  _p = io_buf ;
+  line = _p ;
+  first_line_meta = 0 ;
+  while( _p < ( io_buf + ( open_file_length >> 1 ) ) ){
+    line_len = line_len + 1 ;
+    _p_i = * _p & 255 ;
     if( _p_i == 10 ){
-      c = 78 ;
-      print_char ();
-      print_hex_val = _p ;
-      print_hex ();
-      print_hex_val = _len ;
-      println_hex ();
-
-      * metadata = _prev_metadata ;
-      // update next pointer of previous line
-      if( _prev_metadata != 0 ){
-        _prev_metadata = _prev_metadata + 1 ;
-        * _prev_metadata = metadata ;
+      insert_line ();
+      if( first_line_meta == 0 ){
+        first_line_meta = alloc_line_meta ;
       }
-      metadata = metadata + 1 ;
-      * metadata = 0 ;
-      metadata = metadata + 1 ;
-      * metadata = _line_start ;
-      metadata = metadata + 1 ;
-      * metadata = ( _len << 8 ) | ( gs >> 8 ) ;
-      metadata = metadata + 1 ;
-
-      _prev_metadata = metadata - 4 ;
-      _len = 0 ;
+      line_len = 0 ;
       _p_i = _p ;
-      _line_start = _p_i + 1 ;
+      line = _p_i + 1 ;
     }
     _p_i = _p ;
     _p = _p_i + 1 ;
   }
 
+
   // 0x9000
   metadata = 36864 ;
-  active_line = metadata ;
+  if( first_line_meta != 0 ){
+    active_line = first_line_meta ;
+  }
 
   while( 1 == 1 ){
     handle_input ();

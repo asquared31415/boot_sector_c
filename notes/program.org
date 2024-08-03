@@ -62,3 +62,8 @@ To track lines, there's an external doubly linked list of metadata about lines
 |           4..7 | pointer to the contents of the line            |
 | 7..8 bits 0..7 | the length of the line                         |
 |     7..8 bit 7 | 1 if the line is free, 0 if the line is in use |
+
+lines that are free and have length zero have never been allocated and should allocate space
+at the end of the text buffer
+lines that are free and have length non-zero have previously been allocated, and should have their pointer
+into the text buffer reused if possible
