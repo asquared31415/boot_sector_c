@@ -1318,6 +1318,61 @@ int* _prev_metadata ;
 int _len ;
 int* alloc_line_meta ;
 int _alloc_line_c ;
+
+void init_line (){
+  // initializes a line by copying to it and setting up the linked list
+  // metadata should point to the len of the line to init
+
+  // set the length of the new line
+  // and gs to 0x1000
+  * metadata = ( line_len << 8 ) | 16 ;
+  // set the line metadata to point to the newly allocated line
+  metadata = metadata - 1 ;
+  * metadata = text_buf_end ;
+
+  // insert the line in the linked list
+  // make this line's next line be the active line
+  metadata = metadata - 1 ;
+  * metadata = active_line ;
+  // make the previous line for this line be the active line's previous line
+  metadata = metadata - 1 ;
+  * metadata = * active_line ;
+  // make the next line for the active line's previous line be this line
+  _prev_metadata = * metadata ;
+  if( _prev_metadata != 0 ){
+    _prev_metadata = _prev_metadata + 1 ;
+    * _prev_metadata = metadata ;
+  }
+  // make the active line's previous line be this line
+  * active_line = metadata ;
+  alloc_line_meta = metadata ;
+
+  // copy the line to the end of the text buffer
+  gs = 4096 ;
+  memcpy_src = line ;
+  memcpy_dst = text_buf_end ;
+  memcpy_count = line_len >> 1 ;
+  _p_i = text_buf_end ;
+  text_buf_end = _p_i + line_len ;
+  // odd number of bytes to copy, handle the first one specially
+  if( ( line_len & 1 ) == 1 ){
+    ptr = memcpy_dst ;
+    wide_ptr_read ();
+    // replace low 8 bits with first byte of line
+    ptr_val = ( ptr_val & 65280 ) | ( * line & 255 ) ;
+    wide_ptr_write ();
+    _p_i = memcpy_src ;
+    memcpy_src = _p_i + 1 ;
+    _p_i = memcpy_dst ;
+    memcpy_dst = _p_i + 1 ;
+  }
+  // copy the remaining bytes
+  wide_memcpy ();
+
+  // 0x9000
+  metadata = 36864 ;
+}
+
 void insert_line (){
   // args: line, line_len
   // inserts before active_line
@@ -1329,63 +1384,16 @@ void insert_line (){
     _len = * metadata >> 8 ;
     // never allocated
     if( _len == 128 ){
-      // set the length of the new line
-      // and gs to 0x1000
-      * metadata = ( line_len << 8 ) | 16 ;
-
-      // set the line metadata to point to the newly allocated line
-      metadata = metadata - 1 ;
-      * metadata = text_buf_end ;
-
-      // insert the line in the linked list
-      // make this line's next line be the active line
-      metadata = metadata - 1 ;
-      * metadata = active_line ;
-      // make the previous line for this line be the active line's previous line
-      metadata = metadata - 1 ;
-      * metadata = * active_line ;
-      // make the next line for the active line's previous line be this line
-      _prev_metadata = * metadata ;
-      if( _prev_metadata != 0 ){
-        _prev_metadata = _prev_metadata + 1 ;
-        * _prev_metadata = metadata ;
-      }
-      // make the active line's previous line be this line
-      * active_line = metadata ;
-      alloc_line_meta = metadata ;
-
-      // copy the line to the end of the text buffer
-      gs = 4096 ;
-      memcpy_src = line ;
-      memcpy_dst = text_buf_end ;
-      memcpy_count = line_len >> 1 ;
-      _p_i = text_buf_end ;
-      text_buf_end = _p_i + line_len ;
-      // odd number of bytes to copy, handle the first one specially
-      if( ( line_len & 1 ) == 1 ){
-        ptr = memcpy_dst ;
-        wide_ptr_read ();
-        // replace low 8 bits with first byte of line
-        ptr_val = ( ptr_val & 65280 ) | ( * line & 255 ) ;
-        wide_ptr_write ();
-        _p_i = memcpy_src ;
-        memcpy_src = _p_i + 1 ;
-        _p_i = memcpy_dst ;
-        memcpy_dst = _p_i + 1 ;
-      }
-      // copy the remaining bytes
-      wide_memcpy ();
-
-      // 0x9000
-      metadata = 36864 ;
+      init_line ();
       return;
     }
     if( 128 < _len ){
       // previously allocated, check if suitable
       _len = _len & 127 ;
-      asm(" .byte 235 ; .byte 254 ; ");
-      // MAY NEED TO RETURN IF THE SLOT IS USED
-      // return;
+      if( _len == line_len ){
+        init_line ();
+        return;
+      }
     }
 
     metadata = metadata + 1 ;
@@ -1404,11 +1412,11 @@ void handle_input (){
     // ESC to exit insert mode
     if( c == 27 ){
       text_editor_state = 0 ;
+      print_editor ();
       return;
     }
     read_line ();
 
-    // TODO: put the line in a newly allocated line entry
     insert_line ();
     return;
   }
@@ -1425,8 +1433,6 @@ void handle_input (){
     }
     // p
     if( input_c == 112 ){
-      // TODO: read length from the active line (it will always be in use)
-      // and print it
       print_editor ();
       return;
     }
@@ -1453,6 +1459,37 @@ void handle_input (){
       text_editor_state = 1 ;
       return;
     }
+    // d - delete line
+    if( input_c == 100 ){
+      // the last line can't actually be deleted
+      active_line = active_line + 1 ;
+      if( * active_line == 0 ){
+        active_line = active_line - 1 ;
+        print_editor ();
+        return;
+      }
+      active_line = active_line + 2 ;
+      // 0x8000 - set line free
+      * active_line = * active_line | 32768 ;
+
+      // hook up the previous line for the next line
+      active_line = active_line - 2 ;
+      _prev_metadata = * active_line ;
+      active_line = active_line - 1 ;
+      * _prev_metadata = * active_line ;
+      // if the previous line exists, hook up its next line
+      _prev_metadata = * active_line ;
+      active_line = active_line + 1 ;
+      if( _prev_metadata != 0 ){
+        _prev_metadata = _prev_metadata + 1 ;
+        * _prev_metadata = * active_line ;
+      }
+
+      // set active line to the line after the deleted line
+      active_line = * active_line ;
+      print_editor ();
+      return;
+    }
 
     // fall through to unknown input - ?
     c = 63 ;
@@ -1461,7 +1498,6 @@ void handle_input (){
     print_char ();
   }
 }
-
 
 int* _line_start ;
 int* _p ;
@@ -1537,7 +1573,6 @@ void text_editor (){
     _p_i = _p ;
     _p = _p_i + 1 ;
   }
-
 
   // 0x9000
   metadata = 36864 ;
