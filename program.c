@@ -104,7 +104,7 @@ void memcpy (){
   }
 }
 
-void wide_memcpy (){
+void memcpy_gs_dst (){
   // copies memcpy_count WORDS of data from memcpy_src to gs:memcpy_dst
   // the regions of memory must not overlap
   _memcpy_end = memcpy_src + memcpy_count ;
@@ -112,6 +112,19 @@ void wide_memcpy (){
     ptr = memcpy_dst ;
     ptr_val = * memcpy_src ;
     wide_ptr_write ();
+    memcpy_src = memcpy_src + 1 ;
+    memcpy_dst = memcpy_dst + 1 ;
+  }
+}
+
+void memcpy_gs_src (){
+  // copies memcpy_count WORDS of data from gs:memcpy_src to memcpy_dst
+  // the regions of memory must not overlap
+  _memcpy_end = memcpy_src + memcpy_count ;
+  while( memcpy_src < _memcpy_end ){
+    ptr = memcpy_src ;
+    wide_ptr_read ();
+    * memcpy_dst = ptr_val ;
     memcpy_src = memcpy_src + 1 ;
     memcpy_dst = memcpy_dst + 1 ;
   }
@@ -621,12 +634,6 @@ void update_directory (){
   _update_dir_ptr = tmp + 2048 ;
   io_lba = root_dir_offset ;
   while( tmp < _update_dir_ptr ){
-    c = 68 ;
-    print_char ();
-    print_hex_val = tmp ;
-    print_hex ();
-    print_hex_val = io_lba ;
-    println_hex ();
     memcpy_src = tmp ;
     memcpy_dst = io_buf ;
     memcpy_count = 256 ;
@@ -713,6 +720,7 @@ void file_length_set (){
   // write to the in-memory fs structure
   open_file_metadata = open_file_metadata + 7 ;
   * open_file_metadata = file_length ;
+  open_file_length = file_length ;
   open_file_metadata = open_file_metadata - 7 ;
 
   update_directory ();
@@ -731,8 +739,6 @@ void create_file (){
   while( * _create_file_ptr != 0 ){
     _create_file_ptr = _create_file_ptr + 8 ;
   }
-  print_hex_val = _create_file_ptr ;
-  println_hex ();
 
   // copy the name
   memcpy_src = create_file_name ;
@@ -762,6 +768,7 @@ int  write_file_count ;
 int  write_file_offset ;
 int _write_file_start_sector ;
 int _write_file_cluster ;
+int _w_off ;
 void write_file (){
   // writes the contents of a buffer into the open file at a specified offset in the file
   // expands the file if needed
@@ -790,8 +797,8 @@ void write_file (){
 
   // byte offset to number of words needed to align to a sector
   // FIXME: why cant i shorten this with parens???
-  memcpy_count = ( write_file_offset >> 1 ) & 255 ;
-  memcpy_count = 256 - memcpy_count ;
+  _w_off = ( write_file_offset >> 1 ) & 255 ;
+  memcpy_count = 256 - _w_off ;
 
   if( write_file_count < memcpy_count ){
     memcpy_count = write_file_count ;
@@ -799,14 +806,15 @@ void write_file (){
 
   _write_file_cluster = open_file_fat_cluster ;
   // don't do this alignment write if it's not needed
-  if( memcpy_count != 0 ){
+  if( _w_off != 0 ){
+    io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
+    read_sector ();
     memcpy_src = write_file_buf ;
-    memcpy_dst = io_buf ;
+    memcpy_dst = io_buf + _w_off ;
     // memcpy_count gets destroyed by memcpy, so do this first
     write_file_buf = write_file_buf + memcpy_count ;
     write_file_count = write_file_count - memcpy_count ;
     memcpy ();
-    io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
     write_sector ();
     cluster = _write_file_cluster ;
     next_cluster_get ();
@@ -815,9 +823,11 @@ void write_file (){
 
   while( 0 < write_file_count ){
     io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
-    print_hex_val = io_lba ;
-    println_hex ();
     read_sector ();
+    memset_ptr = io_buf ;
+    memset_val = 0 ;
+    memset_count = 256 ;
+    memset ();
     memcpy_src = write_file_buf ;
     memcpy_dst = io_buf ;
     memcpy_count = write_file_count ;
@@ -923,8 +933,8 @@ void init_fs (){
   root_dir_entries = 128 ;
   first_data_offset = 138 ;
 
-  // 0xD000
-  FAT = 53248 ;
+  // 0x8800
+  FAT = 34816 ;
   io_lba = fat1_offset ;
   read_sector ();
   memcpy_src = io_buf ;
@@ -1188,8 +1198,8 @@ void read_num (){
 int* line ;
 int line_len ;
 void read_line (){
-  // 0x7E00
-  line = 32256 ;
+  // 0x8F00
+  line = 36608 ;
   line_len = 0 ;
   // the first character was already read
   while( line_len < 128 ){
@@ -1199,14 +1209,16 @@ void read_line (){
     line = _p_i + 1 ;
     // exit on newline
     if( c == 10 ){
-      line = 32256 ;
+      // 0x8F00
+      line = 36608 ;
       return;
     }
     read_char ();
   }
   // if the line count reaches 128 without a newline, truncate with one
   * line = 10 ;
-  line = 32256 ;
+  // 0x8F00
+  line = 36608 ;
   // TODO: maybe eat until a newline is found?
 }
 
@@ -1314,10 +1326,10 @@ int* text_buf ;
 int* metadata ;
 int* first_line_meta ;
 int* text_buf_end ;
-int* _prev_metadata ;
+int* _meta ;
 int _len ;
 int* alloc_line_meta ;
-int _alloc_line_c ;
+int _line_c ;
 
 void init_line (){
   // initializes a line by copying to it and setting up the linked list
@@ -1338,10 +1350,10 @@ void init_line (){
   metadata = metadata - 1 ;
   * metadata = * active_line ;
   // make the next line for the active line's previous line be this line
-  _prev_metadata = * metadata ;
-  if( _prev_metadata != 0 ){
-    _prev_metadata = _prev_metadata + 1 ;
-    * _prev_metadata = metadata ;
+  _meta = * metadata ;
+  if( _meta != 0 ){
+    _meta = _meta + 1 ;
+    * _meta = metadata ;
   }
   // make the active line's previous line be this line
   * active_line = metadata ;
@@ -1367,7 +1379,7 @@ void init_line (){
     memcpy_dst = _p_i + 1 ;
   }
   // copy the remaining bytes
-  wide_memcpy ();
+  memcpy_gs_dst ();
 
   // 0x9000
   metadata = 36864 ;
@@ -1378,8 +1390,8 @@ void insert_line (){
   // inserts before active_line
 
   // FIXME: line count
-  _alloc_line_c = 0 ;
-  while( _alloc_line_c < 2048 ){
+  _line_c = 0 ;
+  while( _line_c < 2048 ){
      metadata = metadata + 3 ;
     _len = * metadata >> 8 ;
     // never allocated
@@ -1397,11 +1409,40 @@ void insert_line (){
     }
 
     metadata = metadata + 1 ;
-    _alloc_line_c = _alloc_line_c + 1 ;
+    _line_c = _line_c + 1 ;
   }
 
   // 0x9000
   metadata = 36864 ;
+}
+
+void save_editor (){
+  // loop starting from first_line_meta and write each line
+  _line_c = 0 ;
+  _meta = first_line_meta ;
+  while( 1 == 1 ){
+    _meta = _meta + 2 ;
+    memcpy_src = * _meta ;
+    _meta = _meta + 1 ;
+    gs = ( * _meta & 255 ) << 8 ;
+    write_file_count = * _meta >> 8 ;
+    // 0x7E00
+    memcpy_dst = 32256 ;
+    // potentially writes one extra byte, but it won't be written to the file
+    memcpy_count = ( write_file_count + 1 ) >> 1 ;
+    memcpy_gs_src ();
+    // 0x7E00
+    write_file_buf = 32256 ;
+    write_file_offset = _line_c ;
+    write_file ();
+
+    _line_c = _line_c + ( * _meta >> 8 ) ;
+    _meta = _meta - 2 ;
+    if( * _meta == 0 ){
+      return;
+    }
+    _meta = * _meta ;
+  }
 }
 
 int input_c ;
@@ -1418,6 +1459,9 @@ void handle_input (){
     read_line ();
 
     insert_line ();
+    if( first_line_meta == 0 ){
+      first_line_meta = alloc_line_meta ;
+    }
     return;
   }
 
@@ -1474,20 +1518,29 @@ void handle_input (){
 
       // hook up the previous line for the next line
       active_line = active_line - 2 ;
-      _prev_metadata = * active_line ;
+      _meta = * active_line ;
       active_line = active_line - 1 ;
-      * _prev_metadata = * active_line ;
+      * _meta = * active_line ;
       // if the previous line exists, hook up its next line
-      _prev_metadata = * active_line ;
+      // if there's no previous line, update the first line pointer
+      _meta = * active_line ;
       active_line = active_line + 1 ;
-      if( _prev_metadata != 0 ){
-        _prev_metadata = _prev_metadata + 1 ;
-        * _prev_metadata = * active_line ;
+      if( _meta == 0 ){
+        first_line_meta = * active_line ;
+      }
+      if( _meta != 0 ){
+        _meta = _meta + 1 ;
+        * _meta = * active_line ;
       }
 
       // set active line to the line after the deleted line
       active_line = * active_line ;
       print_editor ();
+      return;
+    }
+    // w
+    if( input_c == 119 ){
+      save_editor ();
       return;
     }
 
@@ -1508,7 +1561,7 @@ void text_editor (){
   // text at 0x1_0000
   text_buf = 0 ;
   text_buf_end = 0 ;
-  _prev_metadata = 0 ;
+  _meta = 0 ;
 
   // clear both metadata and text
   memset_ptr = metadata ;
@@ -1520,14 +1573,14 @@ void text_editor (){
   text_editor_state = 0 ;
 
   // set the length of every line to 0x80 - empty, never allocated
-  _alloc_line_c = 0 ;
+  _line_c = 0 ;
   metadata = metadata + 3 ;
   // TODO: line count
-  while( _alloc_line_c < 2048 ){
+  while( _line_c < 2048 ){
     // 0x8010 - free, zero len, gs 0x1000
     * metadata = 32784 ;
     metadata = metadata + 4 ;
-    _alloc_line_c = _alloc_line_c + 1 ;
+    _line_c = _line_c + 1 ;
   }
   // 0x9000
   metadata = 36864 ;
@@ -1550,8 +1603,24 @@ void text_editor (){
   text_buf_end = _p_i + 1 ;
   active_line = metadata ;
 
-  open_file_metadata = fat16_root_data ;
-  open_file ();
+  // file name FILE    .TXT
+  // 0x0F00
+  _fname = 3840 ;
+  * _fname = 18758 ;
+  _fname = _fname + 1 ;
+  * _fname = 17740 ;
+  _fname = _fname + 1 ;
+  * _fname = 0 ;
+  _fname = _fname + 1 ;
+  * _fname = 0 ;
+  _fname = _fname + 1 ;
+  * _fname = 22612 ;
+  _fname = _fname + 1 ;
+  * _fname = 84 ;
+
+  create_file_name = _fname - 5 ;
+  create_file ();
+  _ax = fat16_root_data ;
 
   // TODO: read more than just one sector in
   line_len = 0 ;

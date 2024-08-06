@@ -17,10 +17,10 @@
 0x0_6200-0x0_71FF: tmp buffer
 0x0_7200-0x0_7BFF: local data stack (this probably needs to be expanded)
 0x0_7C00-0x0_7DFF: boot sector
-0x0_7E00-0x0_7EFF: line editor edit line buffer
-0x0_7F00-0x0_7FFF: unallocated
+0x0_7E00-0x0_7FFF: write_file buf
 0x0_8000-0x0_87FF: FAT16 root data structures
 0x0_8800-0x0_89FF: file allocation table
-0x0_8A00-0x0_8FFF: unallocated RAM
+0x0_8A00-0x0_8EFF: unallocated RAM
+0x0_8F00-0x0_8FFF: line editor edit line buffer
 0x0_9000-0x0_FFFF: text editor line metadata
 0x1_0000-0x1_FFFF: text editor text buffer
