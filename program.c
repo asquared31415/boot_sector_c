@@ -1360,6 +1360,11 @@ void init_line (){
   * active_line = metadata ;
   alloc_line_meta = metadata ;
 
+  // if inserting before the start, update the first line
+  if( active_line == first_line_meta ){
+    first_line_meta = metadata ;
+  }
+
   // copy the line to the end of the text buffer
   gs = 4096 ;
   memcpy_src = line ;
