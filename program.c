@@ -38,6 +38,7 @@ void write_local (){
 }
 
 int _p_i ;
+int* _p ;
 int gs ;
 int* ptr ;
 int ptr_val ;
@@ -1204,6 +1205,7 @@ void read_line (){
   line_len = 0 ;
   // the first character was already read
   while( line_len < 128 ){
+    read_char ();
     * line = c ;
     line_len = line_len + 1 ;
     _p_i = line ;
@@ -1214,7 +1216,6 @@ void read_line (){
       line = 36608 ;
       return;
     }
-    read_char ();
   }
   // if the line count reaches 128 without a newline, truncate with one
   * line = 10 ;
@@ -1423,6 +1424,28 @@ void insert_line (){
 }
 
 void save_editor (){
+  line_len = 13 ;
+  while( line_len != 12 ){
+    read_line ();
+  }
+
+  _p_i = line ;
+  _p = _p_i + 11 ;
+  * _p = 0 ;
+
+  local_val = line ;
+  push_local ();
+  find_file ();
+  pop_local ();
+  if( local_val != 0 ){
+    open_file_metadata = local_val ;
+    open_file ();
+  }
+  if( local_val == 0 ){
+    create_file_name = line ;
+    create_file ();
+  }
+
   // loop starting from first_line_meta and write each line
   _line_c = 0 ;
   _meta = first_line_meta ;
@@ -1453,18 +1476,51 @@ void save_editor (){
   }
 }
 
+void open_text (){
+  // TODO: implement this properly
+  
+  // TODO: read more than just one sector in
+  line_len = 0 ;
+  _p = io_buf ;
+  line = _p ;
+  first_line_meta = 0 ;
+  while( _p < ( io_buf + ( open_file_length >> 1 ) ) ){
+    line_len = line_len + 1 ;
+    _p_i = * _p & 255 ;
+    if( _p_i == 10 ){
+      insert_line ();
+      if( first_line_meta == 0 ){
+        first_line_meta = alloc_line_meta ;
+      }
+      line_len = 0 ;
+      _p_i = _p ;
+      line = _p_i + 1 ;
+    }
+    _p_i = _p ;
+    _p = _p_i + 1 ;
+  }
+
+  // 0x9000
+  metadata = 36864 ;
+  if( first_line_meta != 0 ){
+    active_line = first_line_meta ;
+  }
+
+
+}
+
 int input_c ;
 void handle_input (){
+  read_line ();
+
   // insert mode
   if( text_editor_state == 1 ){
-    read_char ();
     // ESC to exit insert mode
-    if( c == 27 ){
+    if( ( * line & 255 ) == 27 ){
       text_editor_state = 0 ;
       print_editor ();
       return;
     }
-    read_line ();
 
     insert_line ();
     if( first_line_meta == 0 ){
@@ -1475,9 +1531,7 @@ void handle_input (){
 
   // command state
   if( text_editor_state == 0 ){
-    read_char ();
-    // need this to not change during prints
-    input_c = c ;
+    input_c = * line & 255 ;
 
     // \n and \r at the start of a line should just be ignored in command mode
     if( ( input_c == 10 ) | ( input_c == 13 ) ){
@@ -1490,6 +1544,7 @@ void handle_input (){
     }
     // + or -
     if( ( input_c == 43 ) | ( input_c == 45 ) ){
+      // TODO: fix this to work with read line
       read_num ();
       if( num == 0 ){
         num = 1 ;
@@ -1503,11 +1558,6 @@ void handle_input (){
     }
     // i - enters line insertion mode
     if( input_c == 105 ){
-      // eat until newline
-      read_char ();
-      while( c != 10 ){
-        read_char ();
-      }
       text_editor_state = 1 ;
       return;
     }
@@ -1560,9 +1610,6 @@ void handle_input (){
   }
 }
 
-int* _line_start ;
-int* _p ;
-
 void text_editor (){
   // 0x9000
   metadata = 36864 ;
@@ -1571,7 +1618,6 @@ void text_editor (){
   text_buf_end = 0 ;
   _meta = 0 ;
 
-  // clear both metadata and text
   memset_ptr = metadata ;
   memset_count = 14336 ;
   memset_val = 0 ;
@@ -1593,6 +1639,7 @@ void text_editor (){
   // 0x9000
   metadata = 36864 ;
   active_line = metadata ;
+  first_line_meta = metadata ;
 
   // at the end of the file place an empty line to insert before
   gs = 4096 ;
@@ -1607,55 +1654,8 @@ void text_editor (){
   // 0x0110 - len 1, gs 0x1000
   * active_line = 272 ;
 
-  _p_i = text_buf_end ;
-  text_buf_end = _p_i + 1 ;
+  text_buf_end = 1 ;
   active_line = metadata ;
-
-  // file name FILE    .TXT
-  // 0x0F00
-  _fname = 3840 ;
-  * _fname = 18758 ;
-  _fname = _fname + 1 ;
-  * _fname = 17740 ;
-  _fname = _fname + 1 ;
-  * _fname = 0 ;
-  _fname = _fname + 1 ;
-  * _fname = 0 ;
-  _fname = _fname + 1 ;
-  * _fname = 22612 ;
-  _fname = _fname + 1 ;
-  * _fname = 84 ;
-
-  create_file_name = _fname - 5 ;
-  create_file ();
-  _ax = fat16_root_data ;
-
-  // TODO: read more than just one sector in
-  line_len = 0 ;
-  _p = io_buf ;
-  line = _p ;
-  first_line_meta = 0 ;
-  while( _p < ( io_buf + ( open_file_length >> 1 ) ) ){
-    line_len = line_len + 1 ;
-    _p_i = * _p & 255 ;
-    if( _p_i == 10 ){
-      insert_line ();
-      if( first_line_meta == 0 ){
-        first_line_meta = alloc_line_meta ;
-      }
-      line_len = 0 ;
-      _p_i = _p ;
-      line = _p_i + 1 ;
-    }
-    _p_i = _p ;
-    _p = _p_i + 1 ;
-  }
-
-  // 0x9000
-  metadata = 36864 ;
-  if( first_line_meta != 0 ){
-    active_line = first_line_meta ;
-  }
 
   while( 1 == 1 ){
     handle_input ();
