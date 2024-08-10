@@ -37,6 +37,7 @@ void write_local (){
   * _local_ptr = local_val ;
 }
 
+int _p_i ;
 int gs ;
 int* ptr ;
 int ptr_val ;
@@ -768,15 +769,15 @@ int  write_file_count ;
 int  write_file_offset ;
 int _write_file_start_sector ;
 int _write_file_cluster ;
-int _w_off ;
+int _w_len ;
 void write_file (){
   // writes the contents of a buffer into the open file at a specified offset in the file
   // expands the file if needed
   // ARGUMENTS:
   //   IMPLICIT OPEN FILE STATE
   //   <global> write_file_buf - the buffer to write into the file
-  //   <global> write_file_count - the number of 16 bit words to write to the file
-  //   <global> write_file_offset - the offset into the file to begin writing at. must be a multiple of 2, and gets clamped to the end of the file
+  //   <global> write_file_count - the number of bytes to write to the file
+  //   <global> write_file_offset - the offset into the file to begin writing at
 
   // save the logical sector in the file to restore after
   _write_file_start_sector = open_file_sector ;
@@ -795,26 +796,26 @@ void write_file (){
   // allocates FAT clusters as needed
   file_length_set ();
 
-  // byte offset to number of words needed to align to a sector
-  // FIXME: why cant i shorten this with parens???
-  _w_off = ( write_file_offset >> 1 ) & 255 ;
-  memcpy_count = 256 - _w_off ;
+  // bytes needed to align to a sector
+  _w_len = 512 - ( write_file_offset & 255 ) ;
 
-  if( write_file_count < memcpy_count ){
-    memcpy_count = write_file_count ;
+  if( write_file_count < _w_len ){
+    _w_len = write_file_count ;
   }
 
   _write_file_cluster = open_file_fat_cluster ;
   // don't do this alignment write if it's not needed
-  if( _w_off != 0 ){
+  if( _w_len != 512 ){
     io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
     read_sector ();
     memcpy_src = write_file_buf ;
-    memcpy_dst = io_buf + _w_off ;
-    // memcpy_count gets destroyed by memcpy, so do this first
-    write_file_buf = write_file_buf + memcpy_count ;
-    write_file_count = write_file_count - memcpy_count ;
+    _p_i = io_buf ;
+    memcpy_dst = _p_i + ( write_file_offset & 255 ) ;
+    // ( len + 2 ) & 0xFFFE : aligns up to 2
+    memcpy_count = ( ( _w_len + 2 ) & 65534 ) >> 1 ;
     memcpy ();
+    write_file_buf = _p_i + _w_len ;
+    write_file_count = write_file_count - _w_len ;
     write_sector ();
     cluster = _write_file_cluster ;
     next_cluster_get ();
@@ -830,11 +831,13 @@ void write_file (){
     memset ();
     memcpy_src = write_file_buf ;
     memcpy_dst = io_buf ;
-    memcpy_count = write_file_count ;
+    // align up to 2
+    memcpy_count = ( ( write_file_count + 2 ) & 65534 ) >> 1 ;
     // write at most one sector at a time
     if( 256 < memcpy_count ){
       memcpy_count = 256 ;
     }
+    // FIXME: this is maybe right?
     write_file_buf = write_file_buf + memcpy_count ;
     write_file_count = write_file_count - ( memcpy_count << 1 ) ;
     memcpy ();
@@ -1169,8 +1172,6 @@ void backup_and_overwrite (){
   write_sector ();
 }
 
-int _p_i ;
-
 int is ;
 void is_num (){
   // returns whether a character is numeric
@@ -1439,6 +1440,8 @@ void save_editor (){
     _line_c = _line_c + ( * _meta >> 8 ) ;
     _meta = _meta - 2 ;
     if( * _meta == 0 ){
+      file_length = _line_c ;
+      file_length_set ();
       return;
     }
     _meta = * _meta ;
