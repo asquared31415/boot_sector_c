@@ -562,11 +562,33 @@ void next_cluster_set (){
 }
 
 int seek_sector ;
+int _seek_s ;
+int _seek_c ;
 void seek_open_file (){
-  // seeks to a specified logical sector in the currently open file
+  // seeks to the absolute sector seek_sector in the open file
   // updates open_file_sector and open_file_fat_cluster
-  // ARGUMENTS: <global> seek_sector - the absolute sector in the file to open
-  // RETURNS: NONE
+
+  _p = open_file_metadata + 6 ;
+  _seek_c = * _p ;
+  _seek_s = 0 ;
+  while( _seek_s < seek_sector ){
+    cluster = _seek_c ;
+    next_cluster_get ();
+    if( next_cluster == 65535 ){
+      // TODO: return an error probably?
+      return;
+    }
+    _seek_c = next_cluster ;
+    _seek_s = _seek_s + 1 ;
+  }
+
+  open_file_sector = _seek_s ;
+  open_file_fat_cluster = _seek_c ;
+
+  io_lba = ( first_data_offset + _seek_c ) - 2 ;
+  print_hex_val = io_lba ;
+  println_hex ();
+  read_sector ();
 }
 
 void allocate_new_cluster (){
@@ -804,6 +826,7 @@ void write_file (){
     _w_len = write_file_count ;
   }
 
+  // FIXME: this is wrong i think
   _write_file_cluster = open_file_fat_cluster ;
   // don't do this alignment write if it's not needed
   if( _w_len != 512 ){
@@ -1476,28 +1499,117 @@ void save_editor (){
   }
 }
 
+void init_editor (){
+  // 0x9000
+  metadata = 36864 ;
+  // text at 0x1_0000
+  text_buf = 0 ;
+  text_buf_end = 0 ;
+  _meta = 0 ;
+
+  memset_ptr = metadata ;
+  memset_count = 14336 ;
+  memset_val = 0 ;
+  memset ();
+
+  // command state
+  text_editor_state = 0 ;
+
+  // set the length of every line to 0x80 - empty, never allocated
+  _line_c = 0 ;
+  metadata = metadata + 3 ;
+  // TODO: line count
+  while( _line_c < 2048 ){
+    // 0x8010 - free, zero len, gs 0x1000
+    * metadata = 32784 ;
+    metadata = metadata + 4 ;
+    _line_c = _line_c + 1 ;
+  }
+  // 0x9000
+  metadata = 36864 ;
+  active_line = metadata ;
+  first_line_meta = metadata ;
+
+  // at the end of the file place an empty line to insert before
+  gs = 4096 ;
+  ptr = text_buf_end ;
+  ptr_val = 10 ;
+  wide_ptr_write ();
+  active_line = active_line + 1 ;
+  * active_line = 0 ;
+  active_line = active_line + 1 ;
+  * active_line = text_buf_end ;
+  active_line = active_line + 1 ;
+  // 0x0110 - len 1, gs 0x1000
+  * active_line = 272 ;
+
+  text_buf_end = 1 ;
+  active_line = metadata ;
+}
+
+int _read_c ;
+int _open_c ;
+int _open_end ;
+int* _open_p ;
 void open_text (){
-  // TODO: implement this properly
-  
-  // TODO: read more than just one sector in
+  // FIXME: this adds an extra line at the end of a file when opening it
+  init_editor ();
+
+  line_len = 13 ;
+  while( line_len != 12 ){
+    read_line ();
+  }
+
+  _p_i = line ;
+  _p = _p_i + 11 ;
+  * _p = 0 ;
+
+  local_val = line ;
+  push_local ();
+  find_file ();
+  pop_local ();
+  if( local_val == 0 ){
+    asm(" .byte 235 ; .byte 254 ; ");
+  }
+  open_file_metadata = local_val ;
+  open_file ();
+  print_hex_val = open_file_length ;
+  println_hex ();
+
   line_len = 0 ;
   _p = io_buf ;
   line = _p ;
   first_line_meta = 0 ;
-  while( _p < ( io_buf + ( open_file_length >> 1 ) ) ){
+
+  // round up to nearest sector: (s + 0x1FF) & ~0x1FF
+  _open_end = ( open_file_length + 511 ) & 65024 ;
+  _open_c = 0 ;
+  _read_c = 0 ;
+  while( _read_c < open_file_length ){
+    if( ( _read_c & 255 ) == 0 ){
+      seek_sector = _open_c ;
+      seek_open_file ();
+      _open_c = _open_c + 1 ;
+      _open_p = io_buf ;
+    }
+
     line_len = line_len + 1 ;
-    _p_i = * _p & 255 ;
+    _p_i = * _open_p & 255 ;
+    print_hex_val = _p_i ;
+    println_hex ();
     if( _p_i == 10 ){
       insert_line ();
       if( first_line_meta == 0 ){
         first_line_meta = alloc_line_meta ;
       }
       line_len = 0 ;
-      _p_i = _p ;
+      _p_i = _open_p ;
       line = _p_i + 1 ;
     }
-    _p_i = _p ;
-    _p = _p_i + 1 ;
+
+    _p_i = _open_p ;
+    _open_p = _p_i + 1 ;
+    _read_c = _read_c + 1 ;
   }
 
   // 0x9000
@@ -1505,8 +1617,6 @@ void open_text (){
   if( first_line_meta != 0 ){
     active_line = first_line_meta ;
   }
-
-
 }
 
 int input_c ;
@@ -1545,12 +1655,13 @@ void handle_input (){
     // + or -
     if( ( input_c == 43 ) | ( input_c == 45 ) ){
       // TODO: fix this to work with read line
-      read_num ();
-      if( num == 0 ){
-        num = 1 ;
-      }
+      // read_num ();
+      // if( num == 0 ){
+      //   num = 1 ;
+      // }
+      num = 1 ;
       if( input_c == 45 ){
-        num = 0 - num ;
+         num = 0 - num ;
       }
       advance_lines ();
       print_editor ();
@@ -1599,6 +1710,19 @@ void handle_input (){
     // w
     if( input_c == 119 ){
       save_editor ();
+      print_editor ();
+      return;
+    }
+    // o
+    if( input_c == 111 ){
+      open_text ();
+      print_editor ();
+      return;
+    }
+    // n
+    if( input_c == 110 ){
+      init_editor ();
+      print_editor ();
       return;
     }
 
@@ -1611,51 +1735,8 @@ void handle_input (){
 }
 
 void text_editor (){
-  // 0x9000
-  metadata = 36864 ;
-  // text at 0x1_0000
-  text_buf = 0 ;
-  text_buf_end = 0 ;
-  _meta = 0 ;
-
-  memset_ptr = metadata ;
-  memset_count = 14336 ;
-  memset_val = 0 ;
-  memset ();
-
-  // command state
-  text_editor_state = 0 ;
-
-  // set the length of every line to 0x80 - empty, never allocated
-  _line_c = 0 ;
-  metadata = metadata + 3 ;
-  // TODO: line count
-  while( _line_c < 2048 ){
-    // 0x8010 - free, zero len, gs 0x1000
-    * metadata = 32784 ;
-    metadata = metadata + 4 ;
-    _line_c = _line_c + 1 ;
-  }
-  // 0x9000
-  metadata = 36864 ;
-  active_line = metadata ;
-  first_line_meta = metadata ;
-
-  // at the end of the file place an empty line to insert before
-  gs = 4096 ;
-  ptr = text_buf_end ;
-  ptr_val = 10 ;
-  wide_ptr_write ();
-  active_line = active_line + 1 ;
-  * active_line = 0 ;
-  active_line = active_line + 1 ;
-  * active_line = text_buf_end ;
-  active_line = active_line + 1 ;
-  // 0x0110 - len 1, gs 0x1000
-  * active_line = 272 ;
-
-  text_buf_end = 1 ;
-  active_line = metadata ;
+  init_editor ();
+  print_editor ();
 
   while( 1 == 1 ){
     handle_input ();
