@@ -1204,21 +1204,6 @@ void is_num (){
     is = 0 ;
   }
 }
-  
-int num ;
-void read_num (){
-  num = 0 ;
-  while( 1 == 1 ){
-    read_char ();
-    is_num ();
-    if( is != 1 ){
-      return;
-    }
-    // num = 10 * num
-    num = ( ( num << 2 ) + num ) << 1 ;
-    num = num + ( c - 48 ) ;
-  }
-}
 
 int* line ;
 int line_len ;
@@ -1245,6 +1230,25 @@ void read_line (){
   // 0x8F00
   line = 36608 ;
   // TODO: maybe eat until a newline is found?
+}
+
+int num ;
+void atoi (){
+  // reads a number from `line`
+  num = 0 ;
+  while( 0 < line_len ){
+    c = * line & 255 ;
+    is_num ();
+    if( is != 1 ){
+      return;
+    }
+    // num = 10 * num
+    num = ( ( num << 2 ) + num ) << 1 ;
+    num = num + ( c - 48 ) ;
+    _p_i = line ;
+    line = _p_i + 1 ;
+    line_len = line_len - 1 ;
+  }
 }
 
 int _next_line ;
@@ -1654,14 +1658,14 @@ void handle_input (){
     }
     // + or -
     if( ( input_c == 43 ) | ( input_c == 45 ) ){
-      // TODO: fix this to work with read line
-      // read_num ();
-      // if( num == 0 ){
-      //   num = 1 ;
-      // }
-      num = 1 ;
+      _p_i = line ;
+      line = _p_i + 1 ;
+      atoi ();
+      if( num == 0 ){
+        num = 1 ;
+      }
       if( input_c == 45 ){
-         num = 0 - num ;
+        num = 0 - num ;
       }
       advance_lines ();
       print_editor ();
