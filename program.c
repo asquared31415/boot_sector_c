@@ -1031,6 +1031,28 @@ void init_fs (){
   fat16_root_data = 32768 ;
 }
 
+void list_files (){
+  _read_dir_entry_ptr = fat16_root_data ;
+  _read_root_count = 0 ;
+  while( _read_root_count < root_dir_entries ){
+    _read_dir_entry_ptr = _read_dir_entry_ptr + 6 ;
+    _p_i = * _read_dir_entry_ptr ;
+    // skip files with an invalid start cluster (they don't exist)
+    if( _p_i != 0 ){
+      print_str_ptr = _read_dir_entry_ptr - 6 ;
+      print_str_len = 12 ;
+      print_string_len ();
+      c = 32 ;
+      print_char ();
+      print_hex_val = * _read_dir_entry_ptr ;
+      println_hex ();
+    }
+    // go to next entry (already at offset 12)
+    _read_dir_entry_ptr = _read_dir_entry_ptr + 2 ;
+    _read_root_count = _read_root_count + 1 ;
+  }
+}
+
 int* main_addr ;
 
 int* _fname ;
@@ -1556,6 +1578,9 @@ int _open_c ;
 int _open_end ;
 int* _open_p ;
 void open_text (){
+  // list the files when opening too, for ease of use
+  list_files ();
+
   // FIXME: this adds an extra line at the end of a file when opening it
   init_editor ();
 
@@ -1727,6 +1752,11 @@ void handle_input (){
     if( input_c == 110 ){
       init_editor ();
       print_editor ();
+      return;
+    }
+    // l
+    if( input_c == 108 ){
+      list_files ();
       return;
     }
 
