@@ -1332,6 +1332,7 @@ void print_line (){
 
 int _context_count ;
 int _context_done ;
+int _drawn_lines ;
 void print_editor (){
   clear ();
   
@@ -1349,27 +1350,43 @@ void print_editor (){
       _context_count = _context_count + 1 ;
     }
   }
-
-  while( 0 < ( _context_count + 11 ) ){
+  _context_count = _context_count + 11 ;
+  _drawn_lines = 0 ;
+  while( _drawn_lines < _context_count ){
     if( line != active_line ){
       c = 32 ;
       print_char ();
       print_char ();
     }
     if( line == active_line ){
+      // > 
       c = 62 ;
       print_char ();
       c = 32 ;
       print_char ();
     }
     print_line ();
+    _drawn_lines = _drawn_lines + 1 ;
     line = line + 1 ;
     if( * line == 0 ){
-      return;
+      // break
+      _context_count = 0 ;
     }
-    line = * line ;
+    if( * line != 0 ){
+      line = * line ;
+    }
+  }
+
+  // pad to the end of the screen
+  _context_count = 21 - _drawn_lines ;
+  while( 0 < _context_count ){
+    c = 10 ;
+    print_char ();
     _context_count = _context_count - 1 ;
   }
+  // ~
+  c = 126 ;
+  print_char ();
 }
 
 int text_editor_state ;
