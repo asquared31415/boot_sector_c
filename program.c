@@ -1590,6 +1590,37 @@ void init_editor (){
   active_line = metadata ;
 }
 
+void open_file_user (){
+  // finds and opens a file specified by user input
+  // repeats until a valid file is found
+  while( 1 == 1 ){
+    line_len = 13 ;
+    while( line_len != 12 ){
+      read_line ();
+    }
+
+    _p_i = line ;
+    _p = _p_i + 11 ;
+    * _p = 0 ;
+
+    local_val = line ;
+    push_local ();
+    find_file ();
+    pop_local ();
+    if( local_val == 0 ){
+      c = 63 ;
+      print_char ();
+      c = 10 ;
+      print_char ();
+    }
+    if( local_val != 0 ){
+      open_file_metadata = local_val ;
+      open_file ();
+      return;
+    }
+  }
+}
+
 int _read_c ;
 int _open_c ;
 int _open_end ;
@@ -1601,26 +1632,7 @@ void open_text (){
   // FIXME: this adds an extra line at the end of a file when opening it
   init_editor ();
 
-  line_len = 13 ;
-  while( line_len != 12 ){
-    read_line ();
-  }
-
-  _p_i = line ;
-  _p = _p_i + 11 ;
-  * _p = 0 ;
-
-  local_val = line ;
-  push_local ();
-  find_file ();
-  pop_local ();
-  if( local_val == 0 ){
-    asm(" .byte 235 ; .byte 254 ; ");
-  }
-  open_file_metadata = local_val ;
-  open_file ();
-  print_hex_val = open_file_length ;
-  println_hex ();
+  open_file_user ();
 
   line_len = 0 ;
   _p = io_buf ;
@@ -1641,8 +1653,6 @@ void open_text (){
 
     line_len = line_len + 1 ;
     _p_i = * _open_p & 255 ;
-    print_hex_val = _p_i ;
-    println_hex ();
     if( _p_i == 10 ){
       insert_line ();
       if( first_line_meta == 0 ){
