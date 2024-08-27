@@ -47,7 +47,7 @@
       - [X] Save program binary
       - [X] Save original boot sector
       - [X] Replace boot sector with binary loader
- - [ ] Line Editor
+ - [X] Line Editor
 
 
 * Line Editor

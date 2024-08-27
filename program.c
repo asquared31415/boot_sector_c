@@ -1044,11 +1044,12 @@ void list_files (){
       print_string_len ();
       c = 32 ;
       print_char ();
+      _read_dir_entry_ptr = _read_dir_entry_ptr + 1 ;
       print_hex_val = * _read_dir_entry_ptr ;
       println_hex ();
     }
-    // go to next entry (already at offset 12)
-    _read_dir_entry_ptr = _read_dir_entry_ptr + 2 ;
+    // go to next entry (already at offset 14)
+    _read_dir_entry_ptr = _read_dir_entry_ptr + 1 ;
     _read_root_count = _read_root_count + 1 ;
   }
 }
