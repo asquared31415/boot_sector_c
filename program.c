@@ -977,8 +977,8 @@ void init_fs (){
   fat16_root_data = 32768 ;
   memset_ptr = fat16_root_data ;
   memset_val = 0 ;
-  // 0x2000 * 2 bytes = 0x4000 bytes
-  memset_count = 8192 ;
+  // 0x400 words
+  memset_count = 1024 ;
   memset ();
 
   _read_root_count = 0 ;
