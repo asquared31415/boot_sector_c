@@ -10,3 +10,7 @@ qemu_img
 # logs
 qemu.log
 nohup.out
+
+# transfer things
+qemu_socket
+qemu_pty
