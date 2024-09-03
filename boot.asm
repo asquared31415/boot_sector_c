@@ -59,12 +59,13 @@ main:
 
 
     ;; located at 0x7C42
-    ;; REQUIREMENTS:
-    ;; ds must be 0
-    ;; es must be 0
+    ;; REQUIREMENTS
+    ;; ds and es must be identical and a multiple of 0x1000
     ;; fs must be 0x7000
     ;; 0x1_0000-0x2_FFFF must be zeroed
     ;; 0x7_0000-0x7_FFFF must have source code
+    ;; si must be 0x0000
+    ;; di points to location to begin generating code
 compiler_entry:
     .loop:
         stosb          ; | align to 2 bytes

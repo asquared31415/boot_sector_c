@@ -457,37 +457,30 @@ int fat1_offset ;
 int fat2_offset ;
 int* dirent_file_name ;
 
-int* _find_file_name_ptr ;
-int* _find_file_search_ptr ;
-int find_file_idx ;
+int* find_file_name ;
+int* find_file_meta ;
+int _find_file_idx ;
 void find_file (){
-  // ARGUMENTS: pointer to 12 bytes that contain the null terminated name of the file
-  // RETURNS: pointer to the start of the fs metadata block that matched, or 0
-
-  pop_local ();
-  _find_file_name_ptr = local_val ;
-
-  _find_file_search_ptr = fat16_root_data ;
-  find_file_idx = 0 ;
-  while( find_file_idx < root_dir_entries ){
+  // ARGUMENTS: <global find_file_name> pointer to 12 bytes that contain the null terminated name of the file
+  // RETURNS: <global find_file_meta> pointer to the start of the fs metadata block that matched, or 0
+  find_file_meta = fat16_root_data ;
+  _find_file_idx = 0 ;
+  while( _find_file_idx < root_dir_entries ){
     // search for a fs entry with the same name
-    strcmp_lhs = _find_file_name_ptr ;
-    strcmp_rhs = _find_file_search_ptr ;
+    strcmp_lhs = find_file_name ;
+    strcmp_rhs = find_file_meta ;
     strcmp ();
     if( strcmp_diff == 0 ){
-      local_val = _find_file_search_ptr ;
-      push_local ();
       return;
     }
 
     // increment to the next fs entry (16 bytes each)
-    _find_file_search_ptr = _find_file_search_ptr + 8 ;
-    find_file_idx = find_file_idx + 1 ;
+    find_file_meta = find_file_meta + 8 ;
+    _find_file_idx = _find_file_idx + 1 ;
   }
 
   // if we got here, no file found
-  local_val = 0 ;
-  push_local ();
+  find_file_meta = 0 ;
 }
 
 
@@ -586,8 +579,6 @@ void seek_open_file (){
   open_file_fat_cluster = _seek_c ;
 
   io_lba = ( first_data_offset + _seek_c ) - 2 ;
-  print_hex_val = io_lba ;
-  println_hex ();
   read_sector ();
 }
 
@@ -603,6 +594,7 @@ void allocate_new_cluster (){
   next_cluster_set ();
   io_lba = ( first_data_offset + next_fat_idx ) - 2 ;
   // zero the newly allocated cluster
+  // FIXME: THIS ISNT EVEN RUN???
   memset_ptr = io_buf ;
   memset_val = 0 ;
   memset_count = 256 ;
@@ -710,29 +702,31 @@ void file_length_set (){
   // RETURNS: NONE
 
   // follow the FAT chain to set it up properly
-  _set_file_count = 0 ;
+  // all files have at least one cluster allocated
+  _set_file_count = 512 ;
   _set_file_ptr = open_file_metadata + 6 ;
   cluster = * _set_file_ptr ;
-  while( _set_file_count < file_length ){
+  _last_cluster = cluster ;
+  next_cluster_get ();
+  // count allocated clusters
+  while( ( _set_file_count < file_length ) & ( 1 < next_cluster ) ){
     _last_cluster = cluster ;
+    cluster = next_cluster ;
     next_cluster_get ();
-    if( next_cluster < 0 ){
-      // not enough clusters are allocated, allocate as many as needed
-      while( _set_file_count < file_length ){
-        allocate_new_cluster ();
-        cluster = next_fat_idx ;
-        _set_file_count = _set_file_count + 512 ;
-      }
-      // when this drops through, allocate_new_cluster has set next_cluster to 0xFFFF
-    }
-    if( 1 < next_cluster ){
-      cluster = next_cluster ;
-      _set_file_count = _set_file_count + 512 ;
-    }
+    _set_file_count = _set_file_count + 512 ;
+  }
+  // we now either have enough clusters or ran out
+
+
+  while( _set_file_count < file_length ){
+    allocate_new_cluster ();
+    cluster = next_fat_idx ;
+    _set_file_count = _set_file_count + 512 ;
   }
 
+  // if there's still clusters remaining in the chain, free them
+  // allocate_new_cluster sets next_cluster to FFFF, so this only runs if there was extra
   if( 1 < next_cluster ){
-    // if there's still clusters remaining in the chain, free them
     cluster = next_cluster ;
     free_fat_chain ();
     // set the last used cluster to point to EoF
@@ -787,10 +781,10 @@ void create_file (){
   open_file ();
 }
 
+int write_file_seg ;
 int* write_file_buf ;
 int  write_file_count ;
 int  write_file_offset ;
-int _write_file_start_sector ;
 int _write_file_cluster ;
 int _w_len ;
 void write_file (){
@@ -801,9 +795,6 @@ void write_file (){
   //   <global> write_file_buf - the buffer to write into the file
   //   <global> write_file_count - the number of bytes to write to the file
   //   <global> write_file_offset - the offset into the file to begin writing at
-
-  // save the logical sector in the file to restore after
-  _write_file_start_sector = open_file_sector ;
 
   if( open_file_length < write_file_offset ){
     write_file_offset = open_file_length ;
@@ -820,24 +811,34 @@ void write_file (){
   file_length_set ();
 
   // bytes needed to align to a sector
-  _w_len = 512 - ( write_file_offset & 255 ) ;
+  _w_len = 512 - ( write_file_offset & 511 ) ;
 
   if( write_file_count < _w_len ){
     _w_len = write_file_count ;
   }
 
-  // FIXME: this is wrong i think
+  // get the correct cluster from the offset in the file
   _write_file_cluster = open_file_fat_cluster ;
+  _p_i = write_file_offset ;
+  while( 511 < _p_i ){
+    cluster = _write_file_cluster ;
+    next_cluster_get ();
+    _write_file_cluster = next_cluster ;
+    _p_i = _p_i - 512 ;
+  }
+
   // don't do this alignment write if it's not needed
   if( _w_len != 512 ){
     io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
     read_sector ();
+    gs = write_file_seg ;
     memcpy_src = write_file_buf ;
     _p_i = io_buf ;
-    memcpy_dst = _p_i + ( write_file_offset & 255 ) ;
+    memcpy_dst = _p_i + ( write_file_offset & 511 ) ;
     // ( len + 2 ) & 0xFFFE : aligns up to 2
     memcpy_count = ( ( _w_len + 2 ) & 65534 ) >> 1 ;
-    memcpy ();
+    memcpy_gs_src ();
+    _p_i = write_file_buf ;
     write_file_buf = _p_i + _w_len ;
     write_file_count = write_file_count - _w_len ;
     write_sector ();
@@ -849,10 +850,7 @@ void write_file (){
   while( 0 < write_file_count ){
     io_lba = ( first_data_offset + _write_file_cluster ) - 2 ;
     read_sector ();
-    memset_ptr = io_buf ;
-    memset_val = 0 ;
-    memset_count = 256 ;
-    memset ();
+    gs = write_file_seg ;
     memcpy_src = write_file_buf ;
     memcpy_dst = io_buf ;
     // align up to 2
@@ -864,7 +862,7 @@ void write_file (){
     // FIXME: this is maybe right?
     write_file_buf = write_file_buf + memcpy_count ;
     write_file_count = write_file_count - ( memcpy_count << 1 ) ;
-    memcpy ();
+    memcpy_gs_src ();
     write_sector ();
 
     cluster = _write_file_cluster ;
@@ -1088,6 +1086,7 @@ void backup_and_overwrite (){
   open_file_metadata = open_file_metadata - 6 ;
 
   // the program occupies the region 0x1000-0x5FFF (inclusive)
+  write_file_seg = 0 ;
   write_file_buf = 4096 ;
   // 0x5000 bytes
   write_file_count = 20480 ;
@@ -1109,11 +1108,44 @@ void backup_and_overwrite (){
   * _fname = 18754 ;
   _fname = _fname + 1 ;
   * _fname = 78 ;
-
   create_file_name = _fname - 5 ;
   create_file ();
 
   // the boot sector is at 0x7C00-0x7DFF (inclusive)
+  write_file_seg = 0 ;
+  write_file_buf = 31744 ;
+  // 0x200 bytes
+  write_file_count = 512 ;
+  write_file_offset = 0 ;
+  write_file ();
+
+  // save a modified copy of the boot sector that is suitable for use by the fs driver program
+  // "COMPILER.BIN\0"
+  // 0x0F00
+  _fname = 3840 ;
+  * _fname = 20291 ;
+  _fname = _fname + 1 ;
+  * _fname = 20557 ;
+  _fname = _fname + 1 ;
+  * _fname = 19529 ;
+  _fname = _fname + 1 ;
+  * _fname = 21061 ;
+  _fname = _fname + 1 ;
+  * _fname = 18754 ;
+  _fname = _fname + 1 ;
+  * _fname = 78 ;
+  create_file_name = _fname - 5 ;
+  create_file ();
+
+  // overwrite the code that normally jumps to main with
+  // pop cx
+  // far ret
+  // 0x7D97
+  _p = 32151 ;
+  * _p = 52057 ;
+
+  // 0x7C00
+  write_file_seg = 0 ;
   write_file_buf = 31744 ;
   // 0x200 bytes
   write_file_count = 512 ;
@@ -1405,8 +1437,8 @@ void init_line (){
   // metadata should point to the len of the line to init
 
   // set the length of the new line
-  // and gs to 0x1000
-  * metadata = ( line_len << 8 ) | 16 ;
+  // and gs to 0x4000
+  * metadata = ( line_len << 8 ) | 64 ;
   // set the line metadata to point to the newly allocated line
   metadata = metadata - 1 ;
   * metadata = text_buf_end ;
@@ -1434,7 +1466,8 @@ void init_line (){
   }
 
   // copy the line to the end of the text buffer
-  gs = 4096 ;
+  // 0x4000
+  gs = 16384 ;
   memcpy_src = line ;
   memcpy_dst = text_buf_end ;
   memcpy_count = line_len >> 1 ;
@@ -1490,6 +1523,21 @@ void insert_line (){
   metadata = 36864 ;
 }
 
+void create_or_open (){
+  // creates or opens a file, intended for overwriting
+  // args: find_file_name
+
+  find_file ();
+  if( find_file_meta != 0 ){
+    open_file_metadata = find_file_meta ;
+    open_file ();
+  }
+  if( find_file_meta == 0 ){
+    create_file_name = find_file_name ;
+    create_file ();
+  }
+}
+
 void save_editor (){
   line_len = 13 ;
   while( line_len != 12 ){
@@ -1500,18 +1548,8 @@ void save_editor (){
   _p = _p_i + 11 ;
   * _p = 0 ;
 
-  local_val = line ;
-  push_local ();
-  find_file ();
-  pop_local ();
-  if( local_val != 0 ){
-    open_file_metadata = local_val ;
-    open_file ();
-  }
-  if( local_val == 0 ){
-    create_file_name = line ;
-    create_file ();
-  }
+  find_file_name = line ;
+  create_or_open ();
 
   // loop starting from first_line_meta and write each line
   _line_c = 0 ;
@@ -1527,9 +1565,15 @@ void save_editor (){
     // potentially writes one extra byte, but it won't be written to the file
     memcpy_count = ( write_file_count + 1 ) >> 1 ;
     memcpy_gs_src ();
+    // TODO: this could be fixed to write directly from far memory
+    write_file_seg = 0 ;
     // 0x7E00
     write_file_buf = 32256 ;
     write_file_offset = _line_c ;
+    print_hex_val = write_file_offset ;
+    print_hex ();
+    print_hex_val = write_file_count ;
+    println_hex ();
     write_file ();
 
     _line_c = _line_c + ( * _meta >> 8 ) ;
@@ -1564,8 +1608,8 @@ void init_editor (){
   metadata = metadata + 3 ;
   // TODO: line count
   while( _line_c < 2048 ){
-    // 0x8010 - free, zero len, gs 0x1000
-    * metadata = 32784 ;
+    // 0x8040 - free, zero len, gs 0x4000
+    * metadata = 32832 ;
     metadata = metadata + 4 ;
     _line_c = _line_c + 1 ;
   }
@@ -1575,7 +1619,8 @@ void init_editor (){
   first_line_meta = metadata ;
 
   // at the end of the file place an empty line to insert before
-  gs = 4096 ;
+  // 0x4000
+  gs = 16384 ;
   ptr = text_buf_end ;
   ptr_val = 10 ;
   wide_ptr_write ();
@@ -1584,8 +1629,8 @@ void init_editor (){
   active_line = active_line + 1 ;
   * active_line = text_buf_end ;
   active_line = active_line + 1 ;
-  // 0x0110 - len 1, gs 0x1000
-  * active_line = 272 ;
+  // 0x0140 - len 1, gs 0x4000
+  * active_line = 320 ;
 
   text_buf_end = 1 ;
   active_line = metadata ;
@@ -1604,18 +1649,16 @@ void open_file_user (){
     _p = _p_i + 11 ;
     * _p = 0 ;
 
-    local_val = line ;
-    push_local ();
+    find_file_name = line ;
     find_file ();
-    pop_local ();
-    if( local_val == 0 ){
+    if( find_file_meta == 0 ){
       c = 63 ;
       print_char ();
       c = 10 ;
       print_char ();
     }
-    if( local_val != 0 ){
-      open_file_metadata = local_val ;
+    if( find_file_meta != 0 ){
+      open_file_metadata = find_file_meta ;
       open_file ();
       return;
     }
@@ -1640,12 +1683,10 @@ void open_text (){
   line = _p ;
   first_line_meta = 0 ;
 
-  // round up to nearest sector: (s + 0x1FF) & ~0x1FF
-  _open_end = ( open_file_length + 511 ) & 65024 ;
   _open_c = 0 ;
   _read_c = 0 ;
   while( _read_c < open_file_length ){
-    if( ( _read_c & 255 ) == 0 ){
+    if( ( _read_c & 511 ) == 0 ){
       seek_sector = _open_c ;
       seek_open_file ();
       _open_c = _open_c + 1 ;
@@ -1674,6 +1715,168 @@ void open_text (){
   if( first_line_meta != 0 ){
     active_line = first_line_meta ;
   }
+}
+
+void exec_compiler (){
+  // loads the compiler into memory and executes it
+  // assumes that source code is in place at 0x7_0000
+
+  // third file entry is modified boot loader
+  // FIXME: maybe find this by name or some other special way?
+  open_file_metadata = fat16_root_data + 16 ;
+  open_file ();
+  memcpy_src = io_buf ;
+  // 0x3_7C00
+  gs = 12288 ;
+  memcpy_dst = 31744 ;
+  memcpy_count = 256 ;
+  memcpy_gs_dst ();
+  
+  // xor eax, eax
+  // mov cx, 0x8000
+  // mov edi, 0x1_0000
+  // a32 rep stosd
+  // mov si, ax
+  // mov ax, 0x3000
+  // mov ds, ax
+  // mov es, ax
+  // mov ax, 0x7000
+  // mov fs, ax
+  // NOTE: saving room for a jump at the start of the file
+  // mov di, 0x1003
+  // mov sp, 0x7C00
+  // call 3000:7C42
+  // NOTE: must restore ds and es for the driver program
+  // xor bx, bx
+  // mov ds, bx
+  // mov es, bx
+  // NOTE: get ax from the compiler to save the address of main
+  // mov word [0x1000], ax
+  asm(" .byte 102 ; .byte 49 ; .byte 192 ; .byte 185 ; .byte 0 ; .byte 128 ; .byte 102 ; .byte 191 ; .byte 0 ; .byte 0 ; .byte 1 ; .byte 0 ; .byte 243 ; .byte 102 ; .byte 103 ; .byte 171 ; .byte 137 ; .byte 198 ; .byte 184 ; .byte 0 ; .byte 48 ; .byte 142 ; .byte 216 ; .byte 142 ; .byte 192 ; .byte 184 ; .byte 0 ; .byte 112 ; .byte 142 ; .byte 224 ; .byte 191 ; .byte 0 ; .byte 16 ; .byte 154  ; .byte 66 ; .byte 124 ; .byte 0 ; .byte 48 ; .byte 49 ; .byte 219 ; .byte 142 ; .byte 219 ; .byte 142 ; .byte 195 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+
+  // offset of main from the end of the jump
+  // 0x1003
+  main_addr = _ax - 4099 ;
+  // 0x3000
+  gs = 12288 ;
+  // 0x1000
+  ptr = 4096 ;
+  // E9 00
+  ptr_val = 233 ;
+  wide_ptr_write ();
+  _p_i = ptr ;
+  ptr = _p_i + 1 ;
+  ptr_val = main_addr ;
+  wide_ptr_write ();
+
+  // get di from compiler to fix up the final return to be a far return
+  // generated code never uses di
+  // mov word [0x1000], di
+  asm(" .byte 137 ; .byte 62 ; .byte 0 ; .byte 16 ; ");
+
+  // fixup final return
+  // di is aligned after the final C3 00 is emitted
+  // this means that the C3 byte is either 2 or 3 bytes back
+  ptr = _ax - 1 ;
+  // 0x3000
+  gs = 12288 ;
+  wide_ptr_read ();
+  if( ptr_val != 195 ){
+    _p_i = ptr ;
+    ptr = _p_i - 1 ;
+  }
+  // CB 00
+  ptr_val = 203 ;
+  wide_ptr_write ();
+
+  // "A       .OUT\0"
+  // 0x0F00
+  _fname = 3840 ;
+  * _fname = 8257 ;
+  _fname = _fname + 1 ;
+  * _fname = 8224 ;
+  _fname = _fname + 1 ;
+  * _fname = 8224 ;
+  _fname = _fname + 1 ;
+  * _fname = 8224 ;
+  _fname = _fname + 1 ;
+  * _fname = 21839 ;
+  _fname = _fname + 1 ;
+  * _fname = 84 ;
+  find_file_name = _fname - 5 ;
+  create_or_open ();
+
+  // 0x31000-0x35FFF
+  write_file_seg = 12288 ;
+  write_file_buf = 4096 ;
+  write_file_offset = 0 ;
+  write_file_count = 20480 ;
+  write_file ();
+}
+
+void compile_file (){
+  list_files ();
+  open_file_user ();
+
+  // round up to nearest sector: (s + 0x1FF) & ~0x1FF
+  // then get sector count
+  _open_end = ( ( open_file_length + 511 ) & 65024 ) >> 9 ;
+  _open_c = 0 ;
+  _open_p = 0 ;
+  while( _open_c < _open_end ){
+    seek_sector = _open_c ;
+    seek_open_file ();
+    // 0x7000
+    gs = 28672 ;
+    memcpy_src = io_buf ;
+    memcpy_dst = _open_p ;
+    memcpy_count = 256 ;
+    memcpy_gs_dst ();
+    _open_c = _open_c + 1 ;
+    _open_p = _open_p + 256 ;
+  }
+
+  // set a 0 byte at the end of the file
+  ptr = open_file_length ;
+  ptr_val = 0 ;
+  wide_ptr_write ();
+
+  exec_compiler ();
+}
+
+void exec_file (){
+  list_files ();
+  open_file_user ();
+
+  // round up to nearest sector: (s + 0x1FF) & ~0x1FF
+  // then get sector count
+  _open_end = ( ( open_file_length + 511 ) & 65024 ) >> 9 ;
+  _open_c = 0 ;
+  // 0x1000
+  _open_p = 4096 ;
+  while( _open_c < _open_end ){
+    seek_sector = _open_c ;
+    seek_open_file ();
+
+    memcpy_src = io_buf ;
+    // 0x3000
+    gs = 12288 ;
+    memcpy_dst = _open_p ;
+    memcpy_count = 256 ;
+    memcpy_gs_dst ();
+    _open_c = _open_c + 1 ;
+    _open_p = _open_p + 256 ;
+  }
+
+  // mov ax, 0x3000
+  // mov ds, ax
+  // mov es, ax
+  // call far 0x3_1000
+  // NOTE: must restore ds - memory acesses use it, and es - bios interrupts use it
+  // xor ax, ax
+  // mov ds, ax
+  // mov es, ax
+  asm(" .byte 184 ; .byte 0 ; .byte 48 ; .byte 142 ; .byte 216 ; .byte 142 ; .byte 192 ; .byte 154 ; .byte 0 ; .byte 16 ; .byte 0 ; .byte 48 ; .byte 49 ; .byte 192 ; .byte 142 ; .byte 216 ; .byte 142 ; .byte 192 ; ");
 }
 
 int input_c ;
@@ -1787,6 +1990,17 @@ void handle_input (){
       list_files ();
       return;
     }
+    // c
+    if( input_c == 99 ){
+      compile_file ();
+      print_editor ();
+      return;
+    }
+    // e
+    if( input_c == 101 ){
+      exec_file ();
+      return;
+    }
 
     // fall through to unknown input - ?
     c = 63 ;
@@ -1804,6 +2018,8 @@ void text_editor (){
     handle_input ();
   }
 }
+
+
 
 int delay ;
 int* magic_num_ptr ;
@@ -1840,6 +2056,7 @@ int main (){
 
   text_editor ();
 
+  // UNREACHABLE
   while( 1 == 1 ){
   }
 }
