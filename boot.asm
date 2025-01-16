@@ -192,6 +192,41 @@ _if_state:
     mov word [bx - 2], ax ; target is 2 bytes back
     ret
 
+
+_unary:
+    call next_token
+    mov bp, cx               ; store the ident value in bp (zero for integers)
+    ;; reading the value of a variable and dereferencing a pointer use this
+    mov dx, 0x078B ; mov ax, word [bx]
+
+    ;; parens are a unary expression and parse a sub-expression
+    cmp ax, TokenKind.OPEN_PAREN
+    je _expr                    ; also eats the close paren
+
+    cmp ax, TokenKind.STAR
+    je ._star
+
+    ;; if it's not a special token and it has a 0 in the ident map, it's an integer literal
+    ;; everything else is considered to be an ident to be used as a variable
+    jcxz ._num
+    jmp mov_bx_action           ; tail call
+
+    ; mov bx, <ADDR>
+    ; mov bx, word [bx]
+    ; mov ax, word [bx]
+    ._star:
+        ; get next ident and then use its addr
+        call next_token
+        jmp mov_bx_deref_action ; tail call
+
+    ; mov bx, <CONST>
+    ; xchg ax, bx
+    ; nop
+    ._num:
+        xchg cx, ax ; move the constant value into cx to load into program bx
+        mov dx, 0x9093 ; xchg ax, bx; nop
+        ; fallthrough (returns to caller)
+
 ; emits a sequence
 ; mov bx, <CONST>
 ; <2 BYTES>
@@ -221,40 +256,6 @@ mov_bx_deref_action:
     pop ax
     stosw
     ret
-
-_unary:
-    call next_token
-    mov bp, cx               ; store the ident value in bp (zero for integers)
-    ;; reading the value of a variable and dereferencing a pointer use this
-    mov dx, 0x078B ; mov ax, word [bx]
-
-    ;; parens are a unary expression and parse a sub-expression
-    cmp ax, TokenKind.OPEN_PAREN
-    je _expr                    ; also eats the close paren
-
-    cmp ax, TokenKind.STAR
-    je ._star
-
-    ;; if it's not a special token and it has a 0 in the ident map, it's an integer literal
-    ;; everything else is considered to be an ident to be used as a variable
-    jcxz ._num
-    jmp mov_bx_action           ; tail call
-
-    ; mov bx, <CONST>
-    ; xchg ax, bx
-    ; nop
-    ._num:
-        xchg cx, ax ; move the constant value into cx to load into program bx
-        mov dx, 0x9093 ; xchg ax, bx; nop
-        jmp mov_bx_action ; tail call
-
-    ; mov bx, <ADDR>
-    ; mov bx, word [bx]
-    ; mov ax, word [bx]
-    ._star:
-        ; get next ident and then use its addr
-        call next_token
-        jmp mov_bx_deref_action ; tail call
 
 ; emits an expression
 ; expressions return their value in ax
@@ -298,7 +299,7 @@ _expr:
         mov ax, word [bx + 1]
         stosw
         popf         ; restore flags from comparison against binop status
-        jnb ._no_ptr ; no need to adjust if the binop is a condition
+        jnb ._no_ptr ; must not adjust if the binop is a condition
         rcr dl, 1 ; special handling for lhs pointers
         jnc ._no_ptr
 
@@ -390,6 +391,9 @@ _arith_binop_codes:
         db 0x95, 0xC0 ; setne last two bytes
     db TokenKind.LESS & 0xFF
         db 0x9C, 0xC0 ; setl last two bytes
+
+;; padding for measuring how many bytes are left
+db "-----"
 
 TIMES 0x1BE-($-$$) db 0x00
 

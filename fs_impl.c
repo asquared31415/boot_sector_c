@@ -1140,8 +1140,8 @@ void backup_and_overwrite (){
   // overwrite the code that normally jumps to main with
   // pop cx
   // far ret
-  // 0x7D97
-  _p = 32151 ;
+  // 0x7D78
+  _p = 32120 ;
   * _p = 52057 ;
 
   // 0x7C00
@@ -1731,12 +1731,18 @@ void exec_compiler (){
   memcpy_dst = 31744 ;
   memcpy_count = 256 ;
   memcpy_gs_dst ();
-  
+
+  // clear ident->addr map
   // xor eax, eax
   // mov cx, 0x8000
   // mov edi, 0x1_0000
   // a32 rep stosd
-  // mov si, ax
+  asm(" .byte 102 ; .byte 49 ; .byte 192 ; .byte 185 ; .byte 0 ; .byte 128 ; .byte 102 ; .byte 191 ; .byte 0 ; .byte 0 ; .byte 1 ; .byte 0 ; .byte 243 ; .byte 102 ; .byte 103 ; .byte 171 ; ");
+
+    // TODO: put in entries for the ident table with certain fs functions
+
+
+  // xor si, si
   // mov ax, 0x3000
   // mov ds, ax
   // mov es, ax
@@ -1752,7 +1758,7 @@ void exec_compiler (){
   // mov es, bx
   // NOTE: get ax from the compiler to save the address of main
   // mov word [0x1000], ax
-  asm(" .byte 102 ; .byte 49 ; .byte 192 ; .byte 185 ; .byte 0 ; .byte 128 ; .byte 102 ; .byte 191 ; .byte 0 ; .byte 0 ; .byte 1 ; .byte 0 ; .byte 243 ; .byte 102 ; .byte 103 ; .byte 171 ; .byte 137 ; .byte 198 ; .byte 184 ; .byte 0 ; .byte 48 ; .byte 142 ; .byte 216 ; .byte 142 ; .byte 192 ; .byte 184 ; .byte 0 ; .byte 112 ; .byte 142 ; .byte 224 ; .byte 191 ; .byte 0 ; .byte 16 ; .byte 154  ; .byte 66 ; .byte 124 ; .byte 0 ; .byte 48 ; .byte 49 ; .byte 219 ; .byte 142 ; .byte 219 ; .byte 142 ; .byte 195 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  asm(" .byte 137 ; .byte 198 ; .byte 184 ; .byte 0 ; .byte 48 ; .byte 142 ; .byte 216 ; .byte 142 ; .byte 192 ; .byte 184 ; .byte 0 ; .byte 112 ; .byte 142 ; .byte 224 ; .byte 191 ; .byte 3 ; .byte 16 ; .byte 154  ; .byte 66 ; .byte 124 ; .byte 0 ; .byte 48 ; .byte 49 ; .byte 219 ; .byte 142 ; .byte 219 ; .byte 142 ; .byte 195 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
 
   // offset of main from the end of the jump
   // 0x1003
