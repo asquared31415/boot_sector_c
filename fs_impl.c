@@ -1739,7 +1739,13 @@ void exec_compiler (){
   // a32 rep stosd
   asm(" .byte 102 ; .byte 49 ; .byte 192 ; .byte 185 ; .byte 0 ; .byte 128 ; .byte 102 ; .byte 191 ; .byte 0 ; .byte 0 ; .byte 1 ; .byte 0 ; .byte 243 ; .byte 102 ; .byte 103 ; .byte 171 ; ");
 
-    // TODO: put in entries for the ident table with certain fs functions
+  // TODO: put in entries for the ident table with certain fs functions???
+  // update: idk if this makes sense? we might have to sort of forcibly #include (prepend to file)
+  // but then that may interact poorly with variable overlap
+  // also there's a lot of code here that would not fit
+  // maybe a structure somewhere in memory that has a table of far pointers?
+  // though then that needs far pointer wrappers too grrrrr
+  // idk figure this out eventually
 
 
   // xor si, si
@@ -2025,17 +2031,44 @@ void text_editor (){
   }
 }
 
+void meowrp (){
+    // save ds and es from the caller
+    // push ds
+    // push es
+    asm(" .byte 30 ; .byte 6 ; ");
+    // set ds and es to 0x0000 because the driver needs it
 
+    c = 65 ;
+    print_char ();
+    while( 1 == 1 ){
+    }
+
+    // restore ds and es for the caller
+    // pop es
+    // pop ds
+    // iret
+    asm(" .byte 7 ; .byte 31 ; .byte 207 ; ");
+}
+
+void interrupt_setup (){
+  // interrupt 0x40 - each entry is 4 bytes
+  // entries are offset then segment
+  _p = 256 ;
+  * _p = & meowrp ;
+  _p = _p + 1 ;
+  * _p = 0 ;
+
+  asm(" .byte 235 ; .byte 254 ; ");
+
+  asm(" .byte 144 ; .byte 144 ; .byte 205 ; .byte 64 ; ");
+}
 
 int delay ;
 int* magic_num_ptr ;
 int main (){
   // set up stack pointer to point somewhere nicer - mov sp, 0x0F00
   asm(" .byte 188 ; .byte 0 ; .byte 15 ; ");
-  // NONSTANDARD: extract the address of main from ax
-  // mov word [0x1000], ax
-  asm(" .byte 163 ; .byte 0 ; .byte 16 ; ");
-  main_addr = _ax ;
+  main_addr = & main ;
 
   delay = 65535 ;
   while( delay < 32767 ){
@@ -2059,6 +2092,8 @@ int main (){
   if( * magic_num_ptr != 26265 ){
     backup_and_overwrite ();
   }
+
+  interrupt_setup ();
 
   text_editor ();
 

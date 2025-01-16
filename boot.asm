@@ -53,7 +53,7 @@ main:
         or al, al ; exit when a 0x00 byte is read
         jnz ._load_program
 
-    mov es, cx
+    mov es, cx ; cx is zeroed from the rep stosd to clear ident map
     ; di contains the current index to write to
     mov di, PROGRAM_MEM_START
 
@@ -204,20 +204,21 @@ _unary:
     je _expr                    ; also eats the close paren
 
     cmp ax, TokenKind.STAR
-    je ._star
+    je _star
+
+    cmp ax, TokenKind.AND
+    je ._addr
 
     ;; if it's not a special token and it has a 0 in the ident map, it's an integer literal
     ;; everything else is considered to be an ident to be used as a variable
     jcxz ._num
     jmp mov_bx_action           ; tail call
 
-    ; mov bx, <ADDR>
-    ; mov bx, word [bx]
-    ; mov ax, word [bx]
-    ._star:
-        ; get next ident and then use its addr
+    ._addr:
         call next_token
-        jmp mov_bx_deref_action ; tail call
+        ; the entry in the ident map is in cx, but the num constant below
+        ; takes the const in ax
+        xchg cx, ax
 
     ; mov bx, <CONST>
     ; xchg ax, bx
@@ -243,6 +244,15 @@ mov_bx_action:
     stosw
     .end:
     ret
+
+; this is here for ordering purposes yes this is weird and bad
+; mov bx, <ADDR>
+; mov bx, word [bx]
+; mov ax, word [bx]
+_star:
+    ; get next ident and then use its addr
+    call next_token
+    ; fallthrough: returns to caller
 
 ;; mov bx, <ADDR>
 ;; mov bx, word [bx]
@@ -324,8 +334,6 @@ _expr:
 ; if a token was not found, jumps to main
 ; clobbers bx
 next_token:
-    ; al holds the current byte of the program, and ah must be 0 for the 16 bit addition
-    xor ax, ax
     ; bx holds the accumulated 16 bit identifier
     xor bx, bx
     ._tokenizer_start:
@@ -333,16 +341,15 @@ next_token:
     cmp al, 0x00 ; if a 0 byte is found at the start of a token, return EoF
     jne .no_end
     ;; all well formed programs end with `}`, which will set gs to 0x1000
-    ;; jmp [gs:0x07C8] is one byte shorter, but since i cant fit addr-of,
-    ;; put the addr of main in ax when jumping
-    mov ax, word [gs:0x07C8]    ; 0x1000:0x07C8 holds main's address
-    jmp ax
+    jmp word [gs:0x07C8]    ; 0x1000:0x07C8 holds main's address
 
     .no_end:
     ; at the beginning of a token, skip anything up to and including space
     ; as that's various whitespace and non-printing characters
     cmp al, " "
     jbe ._tokenizer_start
+    ; clear the high byte of ax for the addition
+    cbw
 
     ._tokenizer_add_char:
         imul bx, bx, 10
@@ -391,9 +398,6 @@ _arith_binop_codes:
         db 0x95, 0xC0 ; setne last two bytes
     db TokenKind.LESS & 0xFF
         db 0x9C, 0xC0 ; setl last two bytes
-
-;; padding for measuring how many bytes are left
-db "-----"
 
 TIMES 0x1BE-($-$$) db 0x00
 
