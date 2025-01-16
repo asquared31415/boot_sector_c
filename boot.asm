@@ -4,14 +4,14 @@ org 0x7C00 ; BIOS drops us at this address
 %include "consts.asm"
 
 main:
-    ; clear ident->addr map
+    ;; clear ident->addr map
     xor ax, ax
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
     mov di, 0xFFFF ; |
     inc edi        ; | start pointer is 0x1_0000
     a32 rep stosd
 
-    mov si, ax                  ; read source from fs:0000
+    mov si, ax     ; read source from fs:0000
 
     ; Initialize serial
     mov dx, COM1_PORT + 3
@@ -62,7 +62,7 @@ main:
     ;; REQUIREMENTS
     ;; ds and es must be identical and a multiple of 0x1000
     ;; fs must be 0x7000
-    ;; 0x1_0000-0x2_FFFF must be zeroed
+    ;; 0x1_0000-0x2_FFFF must be zeroed (or have valid ident table data)
     ;; 0x7_0000-0x7_FFFF must have source code
     ;; si must be 0x0000
     ;; di points to location to begin generating code
@@ -280,14 +280,14 @@ _expr:
 
     ; NOTE: at this point, if it's not a semicolon, the token must be a binop token
     ; the binop tokens all have unique low bytes, so only that is compared
-    mov bx, ._arith_binop_codes - 3
+    mov bx, _arith_binop_codes - 3
     ._binop_loop:
         add bl, 3
         cmp al, byte [bx]
         jne ._binop_loop
 
     ._binop_eq:
-        cmp bl, (._binop_cmp_start - $$) & 0xFF ; & is not allowed on non-scalars, relative to 0x7C00 is the same though
+        cmp bl, (_binop_cmp_start - $$) & 0xFF ; & is not allowed on non-scalars, relative to 0x7C00 is the same though
         pushf ; we need this condition later too
         jb ._no_cond
         mov ax, 0xC839 ; cmp ax, cx (note: little endian)
@@ -314,30 +314,8 @@ _expr:
         ._emit_end:
         stosw
         ._no_ptr:
-        jmp next_token ; eat the ; after a binop (tail call)
-
-    ; NOTE: truncation to low byte is intentional, see note above
-    ._arith_binop_codes:
-        db TokenKind.PLUS & 0xFF
-            db 0x01, 0xC8 ; add ax, cx
-        db TokenKind.MINUS & 0xFF
-            db 0x29, 0xC8 ; sub ax, cx
-        db TokenKind.OR & 0xFF
-            db 0x09, 0xC8 ; or  ax, cx
-        db TokenKind.AND & 0xFF
-            db 0x21, 0xC8 ; and ax, cx
-        db TokenKind.SHL & 0xFF
-            db 0xD3, 0xE0 ; shl ax, cl
-        db TokenKind.SHR & 0xFF
-            db 0xD3, 0xE8 ; shr ax, cl
-        ._binop_cmp_start:
-        db TokenKind.EQUAL_EQUAL & 0xFF
-            db 0x94, 0xC0 ; sete last two bytes
-        db TokenKind.NOT_EQUAL & 0xFF
-            db 0x95, 0xC0 ; setne last two bytes
-        db TokenKind.LESS & 0xFF
-            db 0x9C, 0xC0 ; setl last two bytes
-
+        ; fallthrough
+        ; eat the ; after a binop (tail call)
 
 ; si must hold the address of the current position in the text
 ; returns the 16 bit token value in ax and the entry in the ident map in cx
@@ -390,6 +368,28 @@ next_token:
     ; of 0x1_0000, if you think about it
     mov cx, word gs:[bx]
     ret
+
+; NOTE: truncation to low byte is intentional, see note above
+_arith_binop_codes:
+    db TokenKind.PLUS & 0xFF
+        db 0x01, 0xC8 ; add ax, cx
+    db TokenKind.MINUS & 0xFF
+        db 0x29, 0xC8 ; sub ax, cx
+    db TokenKind.OR & 0xFF
+        db 0x09, 0xC8 ; or  ax, cx
+    db TokenKind.AND & 0xFF
+        db 0x21, 0xC8 ; and ax, cx
+    db TokenKind.SHL & 0xFF
+        db 0xD3, 0xE0 ; shl ax, cl
+    db TokenKind.SHR & 0xFF
+        db 0xD3, 0xE8 ; shr ax, cl
+    _binop_cmp_start:
+    db TokenKind.EQUAL_EQUAL & 0xFF
+        db 0x94, 0xC0 ; sete last two bytes
+    db TokenKind.NOT_EQUAL & 0xFF
+        db 0x95, 0xC0 ; setne last two bytes
+    db TokenKind.LESS & 0xFF
+        db 0x9C, 0xC0 ; setl last two bytes
 
 TIMES 0x1BE-($-$$) db 0x00
 
