@@ -2031,36 +2031,123 @@ void text_editor (){
   }
 }
 
-void meowrp (){
-    // save ds and es from the caller
-    // push ds
-    // push es
-    asm(" .byte 30 ; .byte 6 ; ");
-    // set ds and es to 0x0000 because the driver needs it
+int interrupt_a ;
+int interrupt_b ;
+int interrupt_c ;
+int interrupt_d ;
+int interrupt_si ;
+int interrupt_di ;
+int interrupt_ret ;
 
-    c = 65 ;
-    print_char ();
-    while( 1 == 1 ){
+void interrupt_40 (){
+  // save ds and es from the caller
+  // store registers ax, bx, cx, dx
+  // push ds
+  // push es
+  // push di
+  // push si
+  // push dx
+  // push cx
+  // push bx
+  // push ax
+  asm(" .byte 30 ; .byte 6 ; .byte 87 ; .byte 86 ; .byte 82 ; .byte 81 ; .byte 83 ; .byte 80 ; ");
+
+  // set ds and es to 0x0000 because the driver needs it
+  // xor di, di
+  // mov ds, di
+  // mov es, di
+  asm(" .byte 49 ; .byte 255 ; .byte 142 ; .byte 223 ; .byte 142 ; .byte 199 ; ");
+
+  // grab saved arguments
+  // pop ax
+  // mov word [0x1000], ax
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  interrupt_a = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  interrupt_b = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  interrupt_c = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  interrupt_d = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  interrupt_si = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  interrupt_di = _ax ;
+
+  if( interrupt_a == 0 ){
+    // open_file
+    find_file_name = interrupt_b ;
+    find_file ();
+    if( find_file_meta != 0 ){
+      open_file_metadata = find_file_meta ;
+      open_file ();
+      interrupt_ret = 0 ;
     }
+    if( find_file_meta == 0 ){
+      interrupt_ret = 1 ;
+    }
+  }
+  if( interrupt_a == 1 ){
+    // create_file
+    find_file_name = interrupt_b ;
+    find_file ();
+    // only create the file if it does not yet exist
+    if( find_file_meta == 0 ){
+      create_file_name = interrupt_b ;
+      create_file ();
+    }
+    if( find_file_meta != 0 ){
+      interrupt_ret = 1 ;
+    }
+  }
+  if( interrupt_a == 2 ){
+    // read_file_sector
+    seek_sector = interrupt_b ;
+    seek_open_file ();
 
-    // restore ds and es for the caller
-    // pop es
-    // pop ds
-    // iret
-    asm(" .byte 7 ; .byte 31 ; .byte 207 ; ");
+    memcpy_src = io_buf ;
+    gs = interrupt_c ;
+    memcpy_dst = interrupt_d ;
+    memcpy_count = 256 ;
+    memcpy_gs_dst ();
+
+    interrupt_ret = 0 ;
+  }
+  if( interrupt_a == 3 ){
+    // write_file
+    write_file_offset = interrupt_b ;
+    write_file_count = interrupt_c ;
+    write_file_seg = interrupt_d ;
+    write_file_buf = interrupt_si ;
+    write_file ();
+    interrupt_ret = 0 ;
+  }
+  if( interrupt_a == 4 ){
+    // file_info
+    memcpy_src = open_file_metadata ;
+    gs = interrupt_b ;
+    memcpy_dst = interrupt_c ;
+    memcpy_count = 8 ;
+    memcpy_gs_dst ();
+    
+    interrupt_ret = 0 ;
+  }
+
+  // restore ds and es for the caller
+  // pop es
+  // pop ds
+  // iret
+  _ax = interrupt_ret ;
+  asm(" .byte 7 ; .byte 31 ; .byte 207 ; ");
 }
 
 void interrupt_setup (){
   // interrupt 0x40 - each entry is 4 bytes
   // entries are offset then segment
   _p = 256 ;
-  * _p = & meowrp ;
+  * _p = & interrupt_40 ;
   _p = _p + 1 ;
   * _p = 0 ;
-
-  asm(" .byte 235 ; .byte 254 ; ");
-
-  asm(" .byte 144 ; .byte 144 ; .byte 205 ; .byte 64 ; ");
 }
 
 int delay ;

@@ -67,3 +67,18 @@ lines that are free and have length zero have never been allocated and should al
 at the end of the text buffer
 lines that are free and have length non-zero have previously been allocated, and should have their pointer
 into the text buffer reused if possible
+
+
+* Interrupts
+see interrupts.org for more information
+
+
+* idk docket style thing?
+- program that puts the processor into long mode
+  - jumps to a long mode program that is at a known address
+- compiler that runs in real mode and emits long mode code
+- FAT16 + driver program (but this time in long mode)
+  - also needs a text editor
+- long mode compiler
+  - ideally compile real->long with itself if possible (probably not, segments)
+  - probably need to write a long mode compiler targeting the real->long compiler
