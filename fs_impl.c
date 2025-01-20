@@ -330,34 +330,68 @@ void clear (){
   set_cursor_pos ();
 }
 
+int print_str_seg ;
 int* print_str_ptr ;
 int _print_str_b ;
 void print_string (){
   // prints a NULL terminated string to the serial output
-  // ARGUMENTS: <global> print_string_src - pointer to the start of the string to print
+  // ARGUMENTS: <global> print_string_seg:print_str_ptr - pointer to the start of the string to print
   // RETURNS: NONE
-  _print_str_b = * print_str_ptr & 255 ;
+
+  gs = print_str_seg ;
+  ptr = print_str_ptr ;
+  wide_ptr_read ();
+  _print_str_b = ptr_val & 255 ;
   while( _print_str_b != 0 ){
     c = _print_str_b ;
     print_char ();
-    // hack to get a 1 byte offset
-    _print_str_b = print_str_ptr ;
-    print_str_ptr = _print_str_b + 1 ;
-    _print_str_b = * print_str_ptr & 255 ;
+    _p_i = print_str_ptr ;
+    print_str_ptr = _p_i + 1 ;
+    ptr = print_str_ptr ;
+    wide_ptr_read ();
+    _print_str_b = ptr_val & 255 ;
   }
 }
 
 int print_str_len ;
 void print_string_len (){
+  gs = print_str_seg ;
   while( 0 < print_str_len ){
-    _print_str_b = * print_str_ptr & 255 ;
-    c = _print_str_b ;
+    ptr = print_str_ptr ;
+    wide_ptr_read ();
+    c = ptr_val & 255 ;
     print_char ();
-    // hack to get a 1 byte offset
-    _print_str_b = print_str_ptr ;
-    print_str_ptr = _print_str_b + 1 ;
+    _p_i = print_str_ptr ;
+    print_str_ptr = _p_i + 1 ;
+    ptr = print_str_ptr ;
+    wide_ptr_read ();
+    _print_str_b = ptr_val & 255 ;
     print_str_len = print_str_len - 1 ;
   }
+}
+
+int read_line_seg ;
+int* read_line_ptr ;
+int read_line_max ;
+int read_line_len ;
+void read_stdin (){
+    read_line_len = 0 ;
+    gs = read_line_seg ;
+    // save room for null terminator
+    while( read_line_len < ( read_line_max - 1 ) ){
+        read_char ();
+        ptr = read_line_ptr ;
+        ptr_val = c ;
+        wide_ptr_write ();
+        _p_i = read_line_ptr ;
+        read_line_ptr = _p_i + 1 ;
+        read_line_len = read_line_len + 1 ;
+        // exit on newline
+        if( c == 10 ){
+            read_line_max = read_line_len ;
+        }
+    }
+    // wide_ptr_write wrote the null terminator on the previous loop
 }
 
 
@@ -997,6 +1031,7 @@ void init_fs (){
     }
     // FIXME: implement status 1: vacant entry by not printing
     if( _read_root_dirent_status == 0 ){
+      print_str_seg = 0 ;
       print_str_ptr = fat16_root_data - 8 ;
       print_string ();
       c = 32 ;
@@ -1037,6 +1072,7 @@ void list_files (){
     _p_i = * _read_dir_entry_ptr ;
     // skip files with an invalid start cluster (they don't exist)
     if( _p_i != 0 ){
+      print_str_seg = 0 ;
       print_str_ptr = _read_dir_entry_ptr - 6 ;
       print_str_len = 12 ;
       print_string_len ();
@@ -1343,23 +1379,14 @@ void advance_lines (){
   }
 }
 
-int _print_line_len ;
-int _print_line_ptr ;
 void print_line (){
   line = line + 3 ;
-  _print_line_len = * line >> 8 ;
-  gs = ( * line & 255 ) << 8 ;
+  print_str_len = * line >> 8 ;
+  print_str_seg = ( * line & 255 ) << 8 ;
   line = line - 1 ;
-  _print_line_ptr = * line ;
+  print_str_ptr = * line ;
   line = line - 2 ;
-  while( 0 < _print_line_len ){
-    ptr = _print_line_ptr ;
-    wide_ptr_read ();
-    c = ptr_val & 255 ;
-    print_char ();
-    _print_line_ptr = _print_line_ptr + 1 ;
-    _print_line_len = _print_line_len - 1 ;
-  }
+  print_string_len ();
 }
 
 
@@ -2031,121 +2058,159 @@ void text_editor (){
   }
 }
 
-int interrupt_a ;
-int interrupt_b ;
-int interrupt_c ;
-int interrupt_d ;
-int interrupt_si ;
-int interrupt_di ;
-int interrupt_ret ;
+int int_a ;
+int int_b ;
+int int_c ;
+int int_d ;
+int int_si ;
+int int_di ;
+int int_ret ;
 
-void interrupt_40 (){
-  // save ds and es from the caller
-  // store registers ax, bx, cx, dx
-  // push ds
-  // push es
-  // push di
-  // push si
-  // push dx
-  // push cx
-  // push bx
-  // push ax
+void int_x40 (){
   asm(" .byte 30 ; .byte 6 ; .byte 87 ; .byte 86 ; .byte 82 ; .byte 81 ; .byte 83 ; .byte 80 ; ");
 
   // set ds and es to 0x0000 because the driver needs it
-  // xor di, di
-  // mov ds, di
-  // mov es, di
   asm(" .byte 49 ; .byte 255 ; .byte 142 ; .byte 223 ; .byte 142 ; .byte 199 ; ");
 
   // grab saved arguments
-  // pop ax
-  // mov word [0x1000], ax
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  interrupt_a = _ax ;
+  int_a = _ax ;
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  interrupt_b = _ax ;
+  int_b = _ax ;
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  interrupt_c = _ax ;
+  int_c = _ax ;
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  interrupt_d = _ax ;
+  int_d = _ax ;
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  interrupt_si = _ax ;
+  int_si = _ax ;
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  interrupt_di = _ax ;
+  int_di = _ax ;
 
-  if( interrupt_a == 0 ){
+  if( int_a == 0 ){
     // open_file
-    find_file_name = interrupt_b ;
+    find_file_name = int_b ;
     find_file ();
     if( find_file_meta != 0 ){
       open_file_metadata = find_file_meta ;
       open_file ();
-      interrupt_ret = 0 ;
+      int_ret = 0 ;
     }
     if( find_file_meta == 0 ){
-      interrupt_ret = 1 ;
+      int_ret = 1 ;
     }
   }
-  if( interrupt_a == 1 ){
+  if( int_a == 1 ){
     // create_file
-    find_file_name = interrupt_b ;
+    find_file_name = int_b ;
     find_file ();
     // only create the file if it does not yet exist
     if( find_file_meta == 0 ){
-      create_file_name = interrupt_b ;
+      create_file_name = int_b ;
       create_file ();
     }
     if( find_file_meta != 0 ){
-      interrupt_ret = 1 ;
+      int_ret = 1 ;
     }
   }
-  if( interrupt_a == 2 ){
+  if( int_a == 2 ){
     // read_file_sector
-    seek_sector = interrupt_b ;
+    seek_sector = int_b ;
     seek_open_file ();
 
     memcpy_src = io_buf ;
-    gs = interrupt_c ;
-    memcpy_dst = interrupt_d ;
+    gs = int_c ;
+    memcpy_dst = int_d ;
     memcpy_count = 256 ;
     memcpy_gs_dst ();
-
-    interrupt_ret = 0 ;
+    int_ret = 0 ;
   }
-  if( interrupt_a == 3 ){
+  if( int_a == 3 ){
     // write_file
-    write_file_offset = interrupt_b ;
-    write_file_count = interrupt_c ;
-    write_file_seg = interrupt_d ;
-    write_file_buf = interrupt_si ;
+    write_file_offset = int_b ;
+    write_file_count = int_c ;
+    write_file_seg = int_d ;
+    write_file_buf = int_si ;
     write_file ();
-    interrupt_ret = 0 ;
+    int_ret = 0 ;
   }
-  if( interrupt_a == 4 ){
+  if( int_a == 4 ){
     // file_info
     memcpy_src = open_file_metadata ;
-    gs = interrupt_b ;
-    memcpy_dst = interrupt_c ;
+    gs = int_b ;
+    memcpy_dst = int_c ;
     memcpy_count = 8 ;
     memcpy_gs_dst ();
-    
-    interrupt_ret = 0 ;
+    int_ret = 0 ;
   }
 
   // restore ds and es for the caller
-  // pop es
-  // pop ds
   // iret
-  _ax = interrupt_ret ;
+  _ax = int_ret ;
   asm(" .byte 7 ; .byte 31 ; .byte 207 ; ");
 }
 
-void interrupt_setup (){
+void int_x41 (){
+  // int 0x41 doesn't use si or di
+  asm(" .byte 30 ; .byte 6 ; .byte 82 ; .byte 81 ; .byte 83 ; .byte 80 ; ");
+
+  // set ds and es to 0x0000 because the driver needs it
+  asm(" .byte 49 ; .byte 255 ; .byte 142 ; .byte 223 ; .byte 142 ; .byte 199 ; ");
+
+  // grab saved arguments
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  int_a = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  int_b = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  int_c = _ax ;
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  int_d = _ax ;
+
+  if( int_a == 0 ){
+    read_char ();
+    int_ret = c ;
+  }
+  if( int_a == 1 ){
+    c = int_b ;
+    print_char ();
+    int_ret = 0 ;
+  }
+  if( int_a == 2 ){
+    print_str_seg = int_b ;
+    print_str_ptr = int_c ;
+    print_string ();
+    int_ret = 0 ;
+  }
+  if( int_a == 3 ){
+    print_str_seg = int_b ;
+    print_str_ptr = int_c ;
+    print_str_len = int_d ;
+    print_string_len ();
+    int_ret = 0 ;
+  }
+  if( int_a == 4 ){
+    read_line_seg = int_b ;
+    read_line_ptr = int_c ;
+    read_line_max = int_d ;
+    read_stdin ();
+    int_ret = read_line_len ;
+  }
+
+  // restore ds and es for the caller
+  // iret
+  _ax = int_ret ;
+  asm(" .byte 7 ; .byte 31 ; .byte 207 ; ");
+}
+
+void int_setup (){
   // interrupt 0x40 - each entry is 4 bytes
   // entries are offset then segment
   _p = 256 ;
-  * _p = & interrupt_40 ;
+  * _p = & int_x40 ;
+  _p = _p + 1 ;
+  * _p = 0 ;
+  _p = _p + 1 ;
+  * _p = & int_x41 ;
   _p = _p + 1 ;
   * _p = 0 ;
 }
@@ -2180,7 +2245,7 @@ int main (){
     backup_and_overwrite ();
   }
 
-  interrupt_setup ();
+  int_setup ();
 
   text_editor ();
 

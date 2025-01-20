@@ -13,7 +13,7 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
     this modifies the open file state for future syscalls
     *** args:
         - bx: pointer to null terminated 8.3 format name of the file
-    *** retuns:
+    *** returns:
         - ax: 0 if success, 1 if failure
 
 ** create_file (int 0x40 ax = 1)
@@ -21,7 +21,7 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
     also opens the newly created file.
     *** args:
         - bx: pointer to null terminated 8.3 format name of the file
-    *** retuns:
+    *** returns:
         - ax: 0 if success, 1 if failure
 
 ** read_file_sector (int 0x40 ax = 2)
@@ -30,7 +30,7 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
     *** args:
         - bx: the sector to read, must be in bounds of the file
         - cx:dx: segment and pointer to the destination buffer to place the contents of the sector
-    *** retuns: <none>
+    *** returns: <none>
 
 ** write_file (int 0x40 ax = 3)
     writes to the currently open file from the contents of a buffer, expanding the file
@@ -40,7 +40,7 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
         - bx: the offset into the file to begin writing to
         - cx: the number of bytes to write to the file
         - dx:si: segment and pointer to the source buffer to write into the file.
-    *** retuns: <none>
+    *** returns: <none>
 
 ** file_info (int 0x40 ax = 4)
     gets the metadata for the currently open file.
@@ -48,3 +48,41 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
     *** args:
         - bx:cx: out pointer to place the file metadata into
     *** returns: <none>
+
+* int 0x41 - stdio
+
+** read_char (int 0x41 ax = 0)
+    reads a character from the serial input
+    *** args: <none>
+    *** returns:
+        - ah: 0
+        - al: the character read from the serial port
+
+** print_char (int 0x41 ax = 1)
+    prints a character to the serial output
+    *** args:
+        - bx: the ASCII character to print
+    *** returns: <none>
+
+** print_string (int 0x41 ax = 2)
+    prints a null-terminated string to the serial output
+    *** args:
+        - bx:cx: segment and pointer to the string to print
+    *** returns: <none>
+
+** print_string_len (int 0x41 ax = 3)
+    prints a string with a specified length to the serial output
+    *** args:
+        - bx:cx: segment and pointer to the string to print
+        - dx: length of the string to print
+    *** returns: <none>
+
+** read_line (int 0x41 ax = 4)
+    reads a line of input from the serial input into a buffer.
+    the line will have a `0x0A` newline and is null terminated.
+    this null termination is counted in the maximum length and buffer size.
+    *** args:
+        - bx:cx: segment and pointer of the buffer to fill
+        - dx: the maximum number of bytes to fill
+    *** returns:
+        - ax: the number of bytes read
