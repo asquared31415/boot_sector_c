@@ -6,6 +6,7 @@ org 0x7C00 ; BIOS drops us at this address
 main:
     ;; clear ident->addr map
     xor ax, ax
+    mov ds, ax
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
     mov di, 0xFFFF ; |
     inc edi        ; | start pointer is 0x1_0000
@@ -208,7 +209,6 @@ _unary:
 
     cmp ax, TokenKind.AND
     je ._addr
-
     ;; if it's not a special token and it has a 0 in the ident map, it's an integer literal
     ;; everything else is considered to be an ident to be used as a variable
     jcxz ._num
@@ -377,28 +377,6 @@ next_token:
     mov cx, word gs:[bx]
     ret
 
-; NOTE: truncation to low byte is intentional, see note above
-_arith_binop_codes:
-    db TokenKind.PLUS & 0xFF
-        db 0x01, 0xC8 ; add ax, cx
-    db TokenKind.MINUS & 0xFF
-        db 0x29, 0xC8 ; sub ax, cx
-    db TokenKind.OR & 0xFF
-        db 0x09, 0xC8 ; or  ax, cx
-    db TokenKind.AND & 0xFF
-        db 0x21, 0xC8 ; and ax, cx
-    db TokenKind.SHL & 0xFF
-        db 0xD3, 0xE0 ; shl ax, cl
-    db TokenKind.SHR & 0xFF
-        db 0xD3, 0xE8 ; shr ax, cl
-    _binop_cmp_start:
-    db TokenKind.EQUAL_EQUAL & 0xFF
-        db 0x94, 0xC0 ; sete last two bytes
-    db TokenKind.NOT_EQUAL & 0xFF
-        db 0x95, 0xC0 ; setne last two bytes
-    db TokenKind.LESS & 0xFF
-        db 0x9C, 0xC0 ; setl last two bytes
-
 TIMES 0x1BE-($-$$) db 0x00
 
 ; ====================================================================
@@ -442,9 +420,30 @@ TIMES 0x1BE-($-$$) db 0x00
 ; FAT16 partition
 part0: PART 0x00,0x01,0x3FFF
 
-part1: TIMES 16 db 0x00
-part2: TIMES 16 db 0x00
-part3: TIMES 16 db 0x00
+; NOTE: truncation to low byte is intentional, see note above
+; this is icky that it's in the partition table but it works and i needed space
+_arith_binop_codes:
+    db TokenKind.PLUS & 0xFF
+        db 0x01, 0xC8 ; add ax, cx
+    db TokenKind.MINUS & 0xFF
+        db 0x29, 0xC8 ; sub ax, cx
+    db TokenKind.OR & 0xFF
+        db 0x09, 0xC8 ; or  ax, cx
+    db TokenKind.AND & 0xFF
+        db 0x21, 0xC8 ; and ax, cx
+    db TokenKind.SHL & 0xFF
+        db 0xD3, 0xE0 ; shl ax, cl
+    db TokenKind.SHR & 0xFF
+        db 0xD3, 0xE8 ; shr ax, cl
+    _binop_cmp_start:
+    db TokenKind.EQUAL_EQUAL & 0xFF
+        db 0x94, 0xC0 ; sete last two bytes
+    db TokenKind.NOT_EQUAL & 0xFF
+        db 0x95, 0xC0 ; setne last two bytes
+    db TokenKind.LESS & 0xFF
+        db 0x9C, 0xC0 ; setl last two bytes
+
+TIMES 0x1FE-($-$$) db 0x00
 
 ; Partition table ends just before boot signature
 dw 0xAA55
