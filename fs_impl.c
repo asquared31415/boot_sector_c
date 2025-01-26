@@ -400,10 +400,6 @@ int num_heads ;
 int sect_per_track ;
 int num_cylinders ;
 void get_drive_stats (){
-  c = 100 ;
-  print_char ();
-  print_hex_val = drive_idx ;
-  print_hex ();
   // mov dl, al
   // mov ah, 8
   // int 0x13
@@ -439,16 +435,6 @@ int lba_to_chs_s ;
 int _lba_to_chs_tmp ;
 void lba_to_chs (){
   get_drive_stats ();
-  c = 115 ;
-  print_char ();
-  print_hex_val = num_cylinders ;
-  print_hex ();
-  print_hex_val = num_heads ;
-  print_hex ();
-  print_hex_val = sect_per_track ;
-  print_hex ();
-  c = 32 ;
-  print_char ();
 
   int_div_lhs = lba_to_chs_lba ;
   int_div_rhs = sect_per_track ;
@@ -474,20 +460,6 @@ void disk_io (){
   // RETURNS: <global> io_buf - points to the loaded data
   lba_to_chs_lba = io_lba ;
   lba_to_chs ();
-  print_hex_val = io_lba ;
-  print_hex ();
-  c = 61 ;
-  print_char ();
-  print_hex_val = lba_to_chs_c ;
-  print_hex ();
-  print_hex_val = lba_to_chs_h ;
-  print_hex ();
-  print_hex_val = lba_to_chs_s ;
-  print_hex ();
-  c = 32 ;
-  print_char ();
-  print_hex_val = drive_idx ;
-  print_hex ();
   // 192 - 0xC0
   _io_cx = ( ( lba_to_chs_c & 255 ) << 8 ) | ( lba_to_chs_s | ( ( lba_to_chs_c >> 2 ) & 192 ) ) ;
   // set dx to XXYY
@@ -504,21 +476,6 @@ void disk_io (){
   _ax = _io_ax ;
   asm(" .byte 80 ; ");
   asm(" .byte 88 ; .byte 89 ; .byte 90 ; .byte 91 ; .byte 205 ; .byte 19 ; ");
-
-  c = 61 ;
-  print_char ();
-
-  // get status
-  // mov dl, al
-  // mov ah, 1
-  // int 0x13
-  // push ax
-  _ax = drive_idx ;
-  asm(" .byte 136 ; .byte 194 ; .byte 180 ; .byte 1 ; .byte 205 ; .byte 19 ; .byte 80 ; ");
-  // pop ax; move word [0x1000], ax
-  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  print_hex_val = _ax ;
-  println_hex ();
 }
 
 void read_sector (){
@@ -1087,29 +1044,8 @@ void init_fs (){
       fat16_root_data = 32768 ;
       return;
     }
-    // FIXME: implement status 1: vacant entry by not printing
+    // FIXME: implement status 1: vacant entry
     if( _read_root_dirent_status == 0 ){
-      print_str_seg = 0 ;
-      print_str_ptr = fat16_root_data - 8 ;
-      print_string ();
-      c = 32 ;
-      print_char ();
-
-      // print the start cluster
-      print_hex_val = fat16_root_data - 2 ;
-      print_hex_val = * print_hex_val ;
-      print_hex ();
-      c = 32 ;
-      print_char ();
-
-      // print the file size
-      print_hex_val = fat16_root_data - 1 ;
-      print_hex_val = * print_hex_val ;
-      print_hex ();
-
-      c = 10 ;
-      print_char ();
-
       // each entry is 32 bytes
       io_buf = io_buf + 16 ;
       _read_root_count = _read_root_count + 1 ;
@@ -2059,7 +1995,7 @@ void handle_input (){
     // w
     if( input_c == 119 ){
       save_editor ();
-    //   print_editor ();
+      print_editor ();
       return;
     }
     // o
@@ -2077,6 +2013,9 @@ void handle_input (){
     // l
     if( input_c == 108 ){
       list_files ();
+      // ~
+      c = 126 ;
+      print_char ();
       return;
     }
     // c
@@ -2279,6 +2218,33 @@ int main (){
   // compiler extension: main is returned in ax
   asm(" .byte 163 ; .byte 0 ; .byte 16 ; ");
   main_addr = _ax ;
+
+  // press enter...
+  c = 112 ;
+  print_char ();
+  c = 114 ;
+  print_char ();
+  c = 101 ;
+  print_char ();
+  c = 115 ;
+  print_char ();
+  print_char ();
+  c = 32 ;
+  print_char ();
+  c = 101 ;
+  print_char ();
+  c = 110 ;
+  print_char ();
+  c = 116 ;
+  print_char ();
+  c = 101 ;
+  print_char ();
+  c = 114 ;
+  print_char ();
+  c = 46 ;
+  print_char ();
+  print_char ();
+  print_char ();
 
   // wait for input
   read_char ();
