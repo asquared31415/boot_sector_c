@@ -4,10 +4,13 @@ org 0x7C00
 main:
     xor ax, ax
     mov es, ax
+    mov ds, ax
+    mov byte [0x0600], dl ; save drive num for later
+    push dx
 
     ;; get drive parameters to get the CHS
     mov ah, 0x08
-    int 0x13                    ; dl is still set to 0x80
+    int 0x13                    ; dl is still set to the drive num
     mov byte [max_head_num], dh
     mov al, cl
     and al, 0b0011_1111
@@ -22,8 +25,8 @@ main:
     mov dl, byte [max_head_num]
     inc dl
     div dl
+    pop dx                      ; restore disk index
     mov dh, ah                  ; head
-    mov dl, 0x80                ; disk 0x80
     mov ch, al                  ; cylinder
 
     mov ax, 0x0228              ; 0x02 = read, 0x28 sectors = 0x5000 bytes

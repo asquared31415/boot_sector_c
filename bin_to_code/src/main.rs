@@ -28,6 +28,7 @@ fn main() -> Result<()> {
     }
 
     let mut output = String::new();
+    writeln!(&mut output, "  // BEGIN GENERATED CODE")?;
 
     let mut inc_count = 0;
     for (idx, &word) in contents.array_chunks::<2>().enumerate() {
@@ -39,7 +40,7 @@ fn main() -> Result<()> {
         if idx == 0 {
             write!(
                 &mut output,
-                "* {ptr} = {val} ;\n",
+                "  * {ptr} = {val} ;\n",
                 ptr = cli.ptr_name,
                 val = val,
             )
@@ -47,7 +48,7 @@ fn main() -> Result<()> {
         } else {
             write!(
                 &mut output,
-                "{ptr} = {ptr} + {inc} ;\n* {ptr} = {val} ;\n",
+                "  {ptr} = {ptr} + {inc} ;\n  * {ptr} = {val} ;\n",
                 ptr = cli.ptr_name,
                 val = val,
                 inc = inc_count
@@ -57,6 +58,7 @@ fn main() -> Result<()> {
 
         inc_count = 1;
     }
+    writeln!(&mut output, "  // END GENERATED CODE")?;
 
     fs::write("out/generated.txt", output)?;
     Ok(())
