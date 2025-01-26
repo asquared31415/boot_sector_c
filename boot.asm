@@ -7,12 +7,11 @@ main:
     ;; clear ident->addr map
     xor ax, ax
     mov ds, ax
+    mov byte [0x0600], dl
     mov cx, 0x8000 ; write 0x8000 dwords = 0x2_0000 bytes
     mov di, 0xFFFF ; |
     inc edi        ; | start pointer is 0x1_0000
     a32 rep stosd
-
-    mov si, ax     ; read source from fs:0000
 
     ; Initialize serial
     mov dx, COM1_PORT + 3
@@ -50,11 +49,12 @@ main:
         jz ._load_program
         mov dl, (COM1_PORT & 0xFF) ; data port
         in al, dx
-        stosb
+        stosb     ; di is zeroed from the rep stosd, so this starts writing at 0x7_0000
         or al, al ; exit when a 0x00 byte is read
         jnz ._load_program
 
-    mov es, cx ; cx is zeroed from the rep stosd to clear ident map
+    mov es, cx      ; cx is still zeroed from the rep stosd
+    xchg si, cx     ; read source from fs:0000
     ; di contains the current index to write to
     mov di, PROGRAM_MEM_START
 
@@ -207,18 +207,10 @@ _unary:
     cmp ax, TokenKind.STAR
     je _star
 
-    cmp ax, TokenKind.AND
-    je ._addr
     ;; if it's not a special token and it has a 0 in the ident map, it's an integer literal
     ;; everything else is considered to be an ident to be used as a variable
     jcxz ._num
     jmp mov_bx_action           ; tail call
-
-    ._addr:
-        call next_token
-        ; the entry in the ident map is in cx, but the num constant below
-        ; takes the const in ax
-        xchg cx, ax
 
     ; mov bx, <CONST>
     ; xchg ax, bx
@@ -283,7 +275,7 @@ _expr:
     mov al, 0x50 ; push ax
     stosb
     call _unary  ; now the first value is on the stack, and the second is in ax
-    mov ax, 0x9159 ; pop ax; xchg ax, cx
+    mov ax, 0x9159 ; pop cx; xchg ax, cx
     stosw
 
     pop ax
@@ -341,7 +333,8 @@ next_token:
     cmp al, 0x00 ; if a 0 byte is found at the start of a token, return EoF
     jne .no_end
     ;; all well formed programs end with `}`, which will set gs to 0x1000
-    jmp word [gs:0x07C8]    ; 0x1000:0x07C8 holds main's address
+    mov ax, word [gs:0x07C8]    ; 0x1000:0x07C8 holds main's address
+    jmp ax
 
     .no_end:
     ; at the beginning of a token, skip anything up to and including space
@@ -376,6 +369,31 @@ next_token:
     ; of 0x1_0000, if you think about it
     mov cx, word gs:[bx]
     ret
+
+_arith_binop_codes:
+    db TokenKind.PLUS & 0xFF
+        db 0x01, 0xC8 ; add ax, cx
+    db TokenKind.MINUS & 0xFF
+        db 0x29, 0xC8 ; sub ax, cx
+    db TokenKind.OR & 0xFF
+        db 0x09, 0xC8 ; or  ax, cx
+    db TokenKind.SHL & 0xFF
+        db 0xD3, 0xE0 ; shl ax, cl
+    db TokenKind.SHR & 0xFF
+        db 0xD3, 0xE8 ; shr ax, cl
+    db TokenKind.AND & 0xFF
+        db 0x21, 0xC8 ; and ax, cx
+    _binop_cmp_start:
+    ; for these, 0xC0 would be the canonical modrm byte, but according to the AMD64 manual:
+    ; "The reg field in the ModR/M byte is unused"
+    ; so we can make it /1 instead of /0
+    ; this potentially might be useful in saving space
+    db TokenKind.EQUAL_EQUAL & 0xFF
+        db 0x94, 0xC8 ; sete last two bytes
+    db TokenKind.NOT_EQUAL & 0xFF
+        db 0x95, 0xC8 ; setne last two bytes
+    db TokenKind.LESS & 0xFF
+        db 0x9C, 0xC8 ; setl last two bytes
 
 TIMES 0x1BE-($-$$) db 0x00
 
@@ -419,29 +437,6 @@ TIMES 0x1BE-($-$$) db 0x00
 
 ; FAT16 partition
 part0: PART 0x00,0x01,0x3FFF
-
-; NOTE: truncation to low byte is intentional, see note above
-; this is icky that it's in the partition table but it works and i needed space
-_arith_binop_codes:
-    db TokenKind.PLUS & 0xFF
-        db 0x01, 0xC8 ; add ax, cx
-    db TokenKind.MINUS & 0xFF
-        db 0x29, 0xC8 ; sub ax, cx
-    db TokenKind.OR & 0xFF
-        db 0x09, 0xC8 ; or  ax, cx
-    db TokenKind.AND & 0xFF
-        db 0x21, 0xC8 ; and ax, cx
-    db TokenKind.SHL & 0xFF
-        db 0xD3, 0xE0 ; shl ax, cl
-    db TokenKind.SHR & 0xFF
-        db 0xD3, 0xE8 ; shr ax, cl
-    _binop_cmp_start:
-    db TokenKind.EQUAL_EQUAL & 0xFF
-        db 0x94, 0xC0 ; sete last two bytes
-    db TokenKind.NOT_EQUAL & 0xFF
-        db 0x95, 0xC0 ; setne last two bytes
-    db TokenKind.LESS & 0xFF
-        db 0x9C, 0xC0 ; setl last two bytes
 
 TIMES 0x1FE-($-$$) db 0x00
 

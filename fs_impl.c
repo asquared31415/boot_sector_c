@@ -395,18 +395,29 @@ void read_stdin (){
 }
 
 
-int max_head_num ;
-int max_sector_num ;
-int max_cylinder_num ;
+int drive_idx ;
+int num_heads ;
+int sect_per_track ;
+int num_cylinders ;
 void get_drive_stats (){
-  asm(" .byte 180 ; .byte 8 ; .byte 178 ; .byte 128 ; .byte 205 ; .byte 19 ; .byte 81 ; .byte 82 ; ");
+  c = 100 ;
+  print_char ();
+  print_hex_val = drive_idx ;
+  print_hex ();
+  // mov dl, al
+  // mov ah, 8
+  // int 0x13
+  // push cx
+  // push dx
+  _ax = drive_idx ;
+  asm(" .byte 136 ; .byte 194 ; .byte 180 ; .byte 8 ; .byte 205 ; .byte 19 ; .byte 81 ; .byte 82 ; ");
   // pop ax; move word [0x1000], ax
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  max_head_num = _ax >> 8 ;
+  num_heads = ( _ax >> 8 ) + 1 ;
   // pop ax; move word [0x1000], ax
   asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
-  max_cylinder_num = ( ( _ax & 192 ) << 8 ) | ( ( _ax & 65280 ) >> 8 ) ;
-  max_sector_num = _ax & 63 ;
+  num_cylinders = ( ( ( _ax & 192 ) << 8 ) | ( ( _ax & 65280 ) >> 8 ) ) + 1 ;
+  sect_per_track = _ax & 63 ;
 }
 
 int mul_lhs ;
@@ -428,14 +439,23 @@ int lba_to_chs_s ;
 int _lba_to_chs_tmp ;
 void lba_to_chs (){
   get_drive_stats ();
+  c = 115 ;
+  print_char ();
+  print_hex_val = num_cylinders ;
+  print_hex ();
+  print_hex_val = num_heads ;
+  print_hex ();
+  print_hex_val = sect_per_track ;
+  print_hex ();
+  c = 32 ;
+  print_char ();
 
   int_div_lhs = lba_to_chs_lba ;
-  int_div_rhs = max_sector_num ;
+  int_div_rhs = sect_per_track ;
   int_div ();
-  _lba_to_chs_tmp = int_div_quot ;
   lba_to_chs_s = int_div_rem + 1 ;
-  int_div_lhs = _lba_to_chs_tmp ;
-  int_div_rhs = max_head_num + 1 ;
+  int_div_lhs = int_div_quot ;
+  int_div_rhs = num_heads + 1 ;
   int_div ();
   lba_to_chs_h = int_div_rem ;
   lba_to_chs_c = int_div_quot ;
@@ -454,10 +474,25 @@ void disk_io (){
   // RETURNS: <global> io_buf - points to the loaded data
   lba_to_chs_lba = io_lba ;
   lba_to_chs ();
+  print_hex_val = io_lba ;
+  print_hex ();
+  c = 61 ;
+  print_char ();
+  print_hex_val = lba_to_chs_c ;
+  print_hex ();
+  print_hex_val = lba_to_chs_h ;
+  print_hex ();
+  print_hex_val = lba_to_chs_s ;
+  print_hex ();
+  c = 32 ;
+  print_char ();
+  print_hex_val = drive_idx ;
+  print_hex ();
   // 192 - 0xC0
   _io_cx = ( ( lba_to_chs_c & 255 ) << 8 ) | ( lba_to_chs_s | ( ( lba_to_chs_c >> 2 ) & 192 ) ) ;
-  // set dx to XX80
-  _io_dx = ( lba_to_chs_h << 8 ) | 128 ;
+  // set dx to XXYY
+  // where YY is the drive id from the bios
+  _io_dx = ( lba_to_chs_h << 8 ) | drive_idx ;
   // 0x6000
   io_buf = 24576 ;
   _ax = io_buf ;
@@ -469,6 +504,21 @@ void disk_io (){
   _ax = _io_ax ;
   asm(" .byte 80 ; ");
   asm(" .byte 88 ; .byte 89 ; .byte 90 ; .byte 91 ; .byte 205 ; .byte 19 ; ");
+
+  c = 61 ;
+  print_char ();
+
+  // get status
+  // mov dl, al
+  // mov ah, 1
+  // int 0x13
+  // push ax
+  _ax = drive_idx ;
+  asm(" .byte 136 ; .byte 194 ; .byte 180 ; .byte 1 ; .byte 205 ; .byte 19 ; .byte 80 ; ");
+  // pop ax; move word [0x1000], ax
+  asm(" .byte 88 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  print_hex_val = _ax ;
+  println_hex ();
 }
 
 void read_sector (){
@@ -992,6 +1042,11 @@ void init_fs (){
   root_dir_entries = 128 ;
   first_data_offset = 138 ;
 
+  // get the drive number from the BIOS
+  // 0x0600
+  _p = 1536 ;
+  drive_idx = * _p & 255 ;
+
   // 0x8800
   FAT = 34816 ;
   io_lba = fat1_offset ;
@@ -1023,7 +1078,7 @@ void init_fs (){
     _read_root_dirent_status = local_val ;
     // status 2 is end of directory
     if( _read_root_dirent_status == 2 ){
-        // 0x6000
+      // 0x6000
       io_buf = 24576 ;
       // 0x8000
       fat16_root_data = 32768 ;
@@ -1176,8 +1231,8 @@ void backup_and_overwrite (){
   // overwrite the code that normally jumps to main with
   // pop cx
   // far ret
-  // 0x7D78
-  _p = 32120 ;
+  // 0x7D7A
+  _p = 32122 ;
   * _p = 52057 ;
 
   // 0x7C00
@@ -1766,15 +1821,6 @@ void exec_compiler (){
   // a32 rep stosd
   asm(" .byte 102 ; .byte 49 ; .byte 192 ; .byte 185 ; .byte 0 ; .byte 128 ; .byte 102 ; .byte 191 ; .byte 0 ; .byte 0 ; .byte 1 ; .byte 0 ; .byte 243 ; .byte 102 ; .byte 103 ; .byte 171 ; ");
 
-  // TODO: put in entries for the ident table with certain fs functions???
-  // update: idk if this makes sense? we might have to sort of forcibly #include (prepend to file)
-  // but then that may interact poorly with variable overlap
-  // also there's a lot of code here that would not fit
-  // maybe a structure somewhere in memory that has a table of far pointers?
-  // though then that needs far pointer wrappers too grrrrr
-  // idk figure this out eventually
-
-
   // xor si, si
   // mov ax, 0x3000
   // mov ds, ax
@@ -1783,21 +1829,18 @@ void exec_compiler (){
   // mov fs, ax
   // NOTE: saving room for a jump at the start of the file
   // mov di, 0x1003
-  // mov sp, 0x7C00
-  // call 3000:7C42
+  // call 3000:7C48
   // NOTE: must restore ds and es for the driver program
   // xor bx, bx
   // mov ds, bx
   // mov es, bx
   // NOTE: get ax from the compiler to save the address of main
   // mov word [0x1000], ax
-  asm(" .byte 137 ; .byte 198 ; .byte 184 ; .byte 0 ; .byte 48 ; .byte 142 ; .byte 216 ; .byte 142 ; .byte 192 ; .byte 184 ; .byte 0 ; .byte 112 ; .byte 142 ; .byte 224 ; .byte 191 ; .byte 3 ; .byte 16 ; .byte 154  ; .byte 66 ; .byte 124 ; .byte 0 ; .byte 48 ; .byte 49 ; .byte 219 ; .byte 142 ; .byte 219 ; .byte 142 ; .byte 195 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  asm(" .byte 137 ; .byte 198 ; .byte 184 ; .byte 0 ; .byte 48 ; .byte 142 ; .byte 216 ; .byte 142 ; .byte 192 ; .byte 184 ; .byte 0 ; .byte 112 ; .byte 142 ; .byte 224 ; .byte 191 ; .byte 3 ; .byte 16 ; .byte 154  ; .byte 72 ; .byte 124 ; .byte 0 ; .byte 48 ; .byte 49 ; .byte 219 ; .byte 142 ; .byte 219 ; .byte 142 ; .byte 195 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
 
   // offset of main from the end of the jump
   // 0x1003
   main_addr = _ax - 4099 ;
-  // 0x3000
-  gs = 12288 ;
   // 0x1000
   ptr = 4096 ;
   // E9 00
@@ -1816,9 +1859,7 @@ void exec_compiler (){
   // fixup final return
   // di is aligned after the final C3 00 is emitted
   // this means that the C3 byte is either 2 or 3 bytes back
-  ptr = _ax - 1 ;
-  // 0x3000
-  gs = 12288 ;
+  ptr = _ax - 2 ;
   wide_ptr_read ();
   if( ptr_val != 195 ){
     _p_i = ptr ;
@@ -2009,7 +2050,7 @@ void handle_input (){
     // w
     if( input_c == 119 ){
       save_editor ();
-      print_editor ();
+    //   print_editor ();
       return;
     }
     // o
@@ -2038,6 +2079,7 @@ void handle_input (){
     // e
     if( input_c == 101 ){
       exec_file ();
+      print_editor ();
       return;
     }
 
@@ -2206,11 +2248,16 @@ void int_setup (){
   // interrupt 0x40 - each entry is 4 bytes
   // entries are offset then segment
   _p = 256 ;
-  * _p = & int_x40 ;
+  // reimplementing addr of in userspace :c
+  _ax = int_0x40 ;
+  asm(" .byte 137 ; .byte 30 ; .byte 0 ; .byte 16 ; ");
+  * _p = _ax ;
   _p = _p + 1 ;
   * _p = 0 ;
   _p = _p + 1 ;
-  * _p = & int_x41 ;
+  _ax = int_0x41 ;
+  asm(" .byte 137 ; .byte 30 ; .byte 0 ; .byte 16 ; ");
+  * _p = _ax ;
   _p = _p + 1 ;
   * _p = 0 ;
 }
@@ -2220,12 +2267,12 @@ int* magic_num_ptr ;
 int main (){
   // set up stack pointer to point somewhere nicer - mov sp, 0x0F00
   asm(" .byte 188 ; .byte 0 ; .byte 15 ; ");
-  main_addr = & main ;
+  // compiler extension: main is returned in ax
+  asm(" .byte 163 ; .byte 0 ; .byte 16 ; ");
+  main_addr = _ax ;
 
-  delay = 65535 ;
-  while( delay < 32767 ){
-    delay = delay + 1 ;
-  }
+  // wait for input
+  read_char ();
 
   // 0x7200
   local_stack = 29184 ;
@@ -2234,6 +2281,8 @@ int main (){
 
   init_fs ();
 
+  c = 77 ;
+  print_char ();
   // check the boot sector for the magic number that indicates that we already set things up
   // 0x7DB8
   magic_num_ptr = 32184 ;

@@ -24,3 +24,11 @@
 0x0_8F00-0x0_8FFF: line editor edit line buffer
 0x0_9000-0x0_FFFF: text editor line metadata
 0x1_0000-0x1_FFFF: text editor text buffer
+
+// 16-to-64 bit compiler:
+0x0_0000-0x0_04FF: BIOS (DO NOT USE)
+0x0_0500-0x0_0FFF: stack pointer
+0x0_1000-0x0_5FFF: compiler program (DO NOT USE)
+0x0_6000-0x0_FFFF: <unallocated>
+0x1_0000-0x6_FFFF: <unallocated>
+0x7_0000-0x7_FFFF: input source code

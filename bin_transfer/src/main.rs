@@ -58,6 +58,12 @@ impl Write for Target {
     }
 }
 
+/// because the serial port is virtualized with a unix socket that can handle
+/// significantly more buffer, and the code is running faster, the delay
+/// on qemu or similar virtual hardware can be nearly zero
+const VIRT_TRANSFER_DELAY: Duration = Duration::from_micros(25);
+const PHYS_TRANSFER_DELAY: Duration = Duration::from_micros(150);
+
 fn main() -> Result<()> {
     env_logger::init();
     color_eyre::install()?;
@@ -75,7 +81,8 @@ fn main() -> Result<()> {
         debug!("serial port device");
         Target::SerialPort(
             serialport::new(cli.socket.as_str(), 115_200)
-                .timeout(Duration::from_millis(100))
+                .baud_rate(112500)
+                .timeout(Duration::from_millis(1_000))
                 .open()
                 .wrap_err_with(|| format!("failed to open serial port device `{}`", cli.socket))?,
         )
@@ -86,7 +93,12 @@ fn main() -> Result<()> {
         .wrap_err_with(|| format!("could not open binary file `{}`", cli.transfer_bin))?;
     target_bin.push(0x00); // programs terminate with a NULL byte
 
-    do_write(&mut target, target_bin.as_slice())?;
+    let delay = match target {
+        Target::UnixSocket(_) => VIRT_TRANSFER_DELAY,
+        Target::SerialPort(_) => PHYS_TRANSFER_DELAY,
+    };
+
+    do_write(&mut target, target_bin.as_slice(), delay)?;
 
     if !cli.no_checksum {
         let mut checksum = 0_u16;
@@ -115,7 +127,7 @@ fn main() -> Result<()> {
     if !cli.no_socat {
         let mut socat_target = cli.socket.clone();
         if matches!(target, Target::SerialPort(_)) {
-            socat_target.push_str(",b115200,rawer");
+            socat_target.push_str(",b115200,raw");
         }
 
         let mut cmd = Command::new("socat");
@@ -128,19 +140,27 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-const TRANSFER_DELAY: Duration = Duration::from_micros(200);
+fn do_write<T: Read + Write>(
+    target: &mut T,
+    bin: &[u8],
+    delay: Duration,
+) -> Result<(), std::io::Error> {
+    // let mut read_back = Vec::new();
 
-fn do_write<T: Read + Write>(target: &mut T, bin: &[u8]) -> Result<(), std::io::Error> {
     for (idx, &b) in bin.iter().enumerate() {
-        if idx % 0x80 == 0 {
-            info!("transferring... {:#06X}/{:#06X}", idx, bin.len());
+        if idx % 0x200 == 0 {
+            // info!("transferring... {:#06X}/{:#06X}", idx, bin.len());
         }
         target.write(&[b])?;
         let _ = target.flush();
         // Sleep a little so that it reads properly.
-        thread::sleep(TRANSFER_DELAY);
+        thread::sleep(delay);
+        // let mut b = 0;
+        // target.read_exact(slice::from_mut(&mut b))?;
+        // read_back.push(b);
     }
     let _ = target.flush();
     info!("transferring... {:#06X}/{:#06X}", bin.len(), bin.len());
+    // assert_eq!(read_back, bin);
     Ok(())
 }
