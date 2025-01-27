@@ -2199,14 +2199,15 @@ void int_setup (){
   // interrupt 0x40 - each entry is 4 bytes
   // entries are offset then segment
   _p = 256 ;
-  // reimplementing addr of in userspace :c
-  _ax = int_0x40 ;
+  // NONSTANDARD: implementing addr of in userspace
+  // by using a function's name as a normal variable
+  int_x40 = int_x40 ;
   asm(" .byte 137 ; .byte 30 ; .byte 0 ; .byte 16 ; ");
   * _p = _ax ;
   _p = _p + 1 ;
   * _p = 0 ;
   _p = _p + 1 ;
-  _ax = int_0x41 ;
+  int_x41 = int_x41 ;
   asm(" .byte 137 ; .byte 30 ; .byte 0 ; .byte 16 ; ");
   * _p = _ax ;
   _p = _p + 1 ;
@@ -2218,7 +2219,7 @@ int* magic_num_ptr ;
 int main (){
   // set up stack pointer to point somewhere nicer - mov sp, 0x0F00
   asm(" .byte 188 ; .byte 0 ; .byte 15 ; ");
-  // compiler extension: main is returned in ax
+  // NONSTANDARD: main's addr is in ax
   asm(" .byte 163 ; .byte 0 ; .byte 16 ; ");
   main_addr = _ax ;
 
