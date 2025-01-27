@@ -1705,9 +1705,9 @@ void open_text (){
 
   open_file_user ();
 
+  // 0x6200
+  line = 25088 ;
   line_len = 0 ;
-  _p = io_buf ;
-  line = _p ;
   first_line_meta = 0 ;
 
   _open_c = 0 ;
@@ -1720,16 +1720,19 @@ void open_text (){
       _open_p = io_buf ;
     }
 
+    c = * _open_p & 255 ;
+    * line = c ;
+    _p_i = line ;
+    line = _p_i + 1 ;
     line_len = line_len + 1 ;
-    _p_i = * _open_p & 255 ;
-    if( _p_i == 10 ){
+    if( c == 10 ){
+      // reset to start of line and insert it
+      line = 25088 ;
       insert_line ();
       if( first_line_meta == 0 ){
         first_line_meta = alloc_line_meta ;
       }
       line_len = 0 ;
-      _p_i = _open_p ;
-      line = _p_i + 1 ;
     }
 
     _p_i = _open_p ;
