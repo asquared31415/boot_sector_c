@@ -12,7 +12,7 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
     finds a file by its name and opens it
     this modifies the open file state for future syscalls
     *** args:
-        - bx: pointer to null terminated 8.3 format name of the file
+        - bx:cx: segment and pointer to null terminated 8.3 format name of the file
     *** returns:
         - ax: 0 if success, 1 if failure
 
@@ -20,16 +20,17 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
     creates a file with the specified name, if the file does not exist.
     also opens the newly created file.
     *** args:
-        - bx: pointer to null terminated 8.3 format name of the file
+        - bx:cx: segment and pointer to null terminated 8.3 format name of the file
     *** returns:
         - ax: 0 if success, 1 if failure
 
-** read_file_sector (int 0x40 ax = 2)
-    reads the specified linear disk sector of the currently open file
-    into a specified buffer. a file MUST be open or behavior is undefined.
+** read_file (int 0x40 ax = 2)
+    reads a specified range of the currently open file into a buffer.
+    a file MUST be open or behavior is undefined.
     *** args:
-        - bx: the sector to read, must be in bounds of the file
-        - cx:dx: segment and pointer to the destination buffer to place the contents of the sector
+        - bx: the offset in bytes to begin reading from
+        - cx: the number of bytes to read
+        - dx:si: segment and pointer to the destination buffer to place the contents of the file
     *** returns: <none>
 
 ** write_file (int 0x40 ax = 3)

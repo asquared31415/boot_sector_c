@@ -2081,7 +2081,11 @@ void int_x40 (){
 
   if( int_a == 0 ){
     // open_file
-    find_file_name = int_b ;
+    gs = int_b ;
+    memcpy_src = int_c ;
+    memcpy_dst = 25088 ;
+    memcpy_gs_src ();
+    find_file_name = 25088 ;
     find_file ();
     if( find_file_meta != 0 ){
       open_file_metadata = find_file_meta ;
@@ -2094,11 +2098,15 @@ void int_x40 (){
   }
   if( int_a == 1 ){
     // create_file
-    find_file_name = int_b ;
+    gs = int_b ;
+    memcpy_src = int_c ;
+    memcpy_dst = 25088 ;
+    memcpy_gs_src ();
+    find_file_name = 25088 ;
     find_file ();
     // only create the file if it does not yet exist
     if( find_file_meta == 0 ){
-      create_file_name = int_b ;
+      create_file_name = find_file_name ;
       create_file ();
     }
     if( find_file_meta != 0 ){
@@ -2106,15 +2114,34 @@ void int_x40 (){
     }
   }
   if( int_a == 2 ){
-    // read_file_sector
-    seek_sector = int_b ;
-    seek_open_file ();
-
-    memcpy_src = io_buf ;
-    gs = int_c ;
-    memcpy_dst = int_d ;
-    memcpy_count = 256 ;
-    memcpy_gs_dst ();
+    // read_file
+    _open_c = int_c ;
+    _open_p = int_b ;
+    tmp = int_si ;
+    while( 0 < _open_c ){
+      // ptr / 512
+      _p_i = _open_p ;
+      seek_sector = _p_i >> 9 ;
+      if( open_file_sector != seek_sector ){
+        seek_open_file ();
+      }
+      // offset within the io buffer to read from (ptr % 512)
+      _p_i = _open_p ;
+      _p = io_buf + ( ( _p_i & 511 ) >> 1 ) ;
+      gs = int_d ;
+      // need to read, mask, and write back to ensure
+      // that garbage doesn't get put into the byte after the end of the buffer
+      ptr = tmp ;
+      wide_ptr_read ();
+      // FF00 | 00FF
+      ptr_val = ( ptr_val & 65280 ) | ( * _p & 255 ) ;
+      wide_ptr_write ();
+      _p_i = _open_p ;
+      _open_p = _p_i + 1 ;
+      _p_i = tmp ;
+      tmp = _p_i + 1 ;
+      _open_c = _open_c - 1 ;
+    }
     int_ret = 0 ;
   }
   if( int_a == 3 ){
