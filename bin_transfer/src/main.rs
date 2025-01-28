@@ -61,7 +61,8 @@ impl Write for Target {
 /// because the serial port is virtualized with a unix socket that can handle
 /// significantly more buffer, and the code is running faster, the delay
 /// on qemu or similar virtual hardware can be nearly zero
-const VIRT_TRANSFER_DELAY: Duration = Duration::from_micros(25);
+/// though it gets blocked on various blocking I/O and other things
+const VIRT_TRANSFER_DELAY: Duration = Duration::from_micros(5);
 const PHYS_TRANSFER_DELAY: Duration = Duration::from_micros(150);
 
 fn main() -> Result<()> {
