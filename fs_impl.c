@@ -2126,8 +2126,11 @@ void int_x40 (){
         seek_open_file ();
       }
       // offset within the io buffer to read from (ptr % 512)
-      _p_i = _open_p ;
-      _p = io_buf + ( ( _p_i & 511 ) >> 1 ) ;
+      // we have to do this dance to get the offsets to be bytes
+      ptr_val = _open_p ;
+      ptr_val = ptr_val & 511 ;
+      _p_i = io_buf ;
+      _p = _p_i + ptr_val ;
       gs = int_d ;
       // need to read, mask, and write back to ensure
       // that garbage doesn't get put into the byte after the end of the buffer
