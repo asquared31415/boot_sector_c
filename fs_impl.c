@@ -227,7 +227,7 @@ int int_div_quot ;
 int int_div_rem ;
 void int_div (){
   int_div_quot = 0 ;
-  while( int_div_rhs < int_div_lhs ){
+  while( int_div_rhs < ( int_div_lhs + 1 ) ){
     int_div_lhs = int_div_lhs - int_div_rhs ;
     int_div_quot = int_div_quot + 1 ;
   }
@@ -441,7 +441,7 @@ void lba_to_chs (){
   int_div ();
   lba_to_chs_s = int_div_rem + 1 ;
   int_div_lhs = int_div_quot ;
-  int_div_rhs = num_heads + 1 ;
+  int_div_rhs = num_heads ;
   int_div ();
   lba_to_chs_h = int_div_rem ;
   lba_to_chs_c = int_div_quot ;
@@ -476,6 +476,10 @@ void disk_io (){
   _ax = _io_ax ;
   asm(" .byte 80 ; ");
   asm(" .byte 88 ; .byte 89 ; .byte 90 ; .byte 91 ; .byte 205 ; .byte 19 ; ");
+  // asm(" .byte 134 ; .byte 224 ; .byte 152 ; .byte 163 ; .byte 0 ; .byte 16 ; ");
+  // if( _ax != 0 ){
+  //   asm(" .byte 235 ; .byte 254 ; .byte 144 ; .byte 144 ; ");
+  // }
 }
 
 void read_sector (){
@@ -1080,6 +1084,41 @@ void list_files (){
     _read_dir_entry_ptr = _read_dir_entry_ptr + 1 ;
     _read_root_count = _read_root_count + 1 ;
   }
+}
+
+int read_file_offset ;
+int read_file_count ;
+int read_file_seg ;
+int* read_file_ptr ;
+void read_file_buf (){
+    while( 0 < read_file_count ){
+      // ptr / 512
+      _p_i = read_file_offset ;
+      seek_sector = _p_i >> 9 ;
+      if( open_file_sector != seek_sector ){
+        seek_open_file ();
+      }
+      // offset within the io buffer to read from (ptr % 512)
+      // we have to do this dance to get the offsets to be bytes
+      ptr_val = read_file_offset ;
+      ptr_val = ptr_val & 511 ;
+      _p_i = io_buf ;
+      _p = _p_i + ptr_val ;
+      gs = read_file_seg ;
+      // need to read, mask, and write back to ensure
+      // that garbage doesn't get put into the byte after the end of the buffer
+      ptr = read_file_ptr ;
+      wide_ptr_read ();
+      // FF00 | 00FF
+      ptr_val = ( ptr_val & 65280 ) | ( * _p & 255 ) ;
+      wide_ptr_write ();
+      _p_i = read_file_offset ;
+      read_file_offset = _p_i + 1 ;
+      _p_i = read_file_ptr ;
+      read_file_ptr = _p_i + 1 ;
+      read_file_count = read_file_count - 1 ;
+    }
+
 }
 
 int* main_addr ;
@@ -1876,25 +1915,12 @@ void exec_file (){
   list_files ();
   open_file_user ();
 
-  // round up to nearest sector: (s + 0x1FF) & ~0x1FF
-  // then get sector count
-  _open_end = ( ( open_file_length + 511 ) & 65024 ) >> 9 ;
-  _open_c = 0 ;
-  // 0x1000
-  _open_p = 4096 ;
-  while( _open_c < _open_end ){
-    seek_sector = _open_c ;
-    seek_open_file ();
-
-    memcpy_src = io_buf ;
-    // 0x3000
-    gs = 12288 ;
-    memcpy_dst = _open_p ;
-    memcpy_count = 256 ;
-    memcpy_gs_dst ();
-    _open_c = _open_c + 1 ;
-    _open_p = _open_p + 256 ;
-  }
+  // read file into 0x31000
+  read_file_offset = 0 ;
+  read_file_count = open_file_length ;
+  read_file_seg = 12288 ;
+  read_file_ptr = 4096 ;
+  read_file_buf ();
 
   // mov ax, 0x3000
   // mov ds, ax
@@ -2115,36 +2141,11 @@ void int_x40 (){
   }
   if( int_a == 2 ){
     // read_file
-    _open_c = int_c ;
-    _open_p = int_b ;
-    tmp = int_si ;
-    while( 0 < _open_c ){
-      // ptr / 512
-      _p_i = _open_p ;
-      seek_sector = _p_i >> 9 ;
-      if( open_file_sector != seek_sector ){
-        seek_open_file ();
-      }
-      // offset within the io buffer to read from (ptr % 512)
-      // we have to do this dance to get the offsets to be bytes
-      ptr_val = _open_p ;
-      ptr_val = ptr_val & 511 ;
-      _p_i = io_buf ;
-      _p = _p_i + ptr_val ;
-      gs = int_d ;
-      // need to read, mask, and write back to ensure
-      // that garbage doesn't get put into the byte after the end of the buffer
-      ptr = tmp ;
-      wide_ptr_read ();
-      // FF00 | 00FF
-      ptr_val = ( ptr_val & 65280 ) | ( * _p & 255 ) ;
-      wide_ptr_write ();
-      _p_i = _open_p ;
-      _open_p = _p_i + 1 ;
-      _p_i = tmp ;
-      tmp = _p_i + 1 ;
-      _open_c = _open_c - 1 ;
-    }
+    read_file_offset = int_b ;
+    read_file_count = int_c ;
+    read_file_seg = int_d ;
+    read_file_ptr = int_si ;
+    read_file_buf ();
     int_ret = 0 ;
   }
   if( int_a == 3 ){
