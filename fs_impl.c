@@ -375,23 +375,39 @@ int* read_line_ptr ;
 int read_line_max ;
 int read_line_len ;
 void read_stdin (){
-    read_line_len = 0 ;
-    gs = read_line_seg ;
-    // save room for null terminator
-    while( read_line_len < ( read_line_max - 1 ) ){
-        read_char ();
-        ptr = read_line_ptr ;
-        ptr_val = c ;
-        wide_ptr_write ();
-        _p_i = read_line_ptr ;
-        read_line_ptr = _p_i + 1 ;
-        read_line_len = read_line_len + 1 ;
-        // exit on newline
-        if( c == 10 ){
-            read_line_max = read_line_len ;
-        }
+  read_line_len = 0 ;
+  gs = read_line_seg ;
+  // save room for null terminator
+  while( read_line_len < ( read_line_max - 1 ) ){
+    read_char ();
+    // exit on LF
+    if( c == 10 ){
+      c = 0 ;
     }
-    // wide_ptr_write wrote the null terminator on the previous loop
+    ptr = read_line_ptr ;
+    ptr_val = c ;
+    // this always has room for the null terminator
+    wide_ptr_write ();
+    _p_i = read_line_ptr ;
+    read_line_ptr = _p_i + 1 ;
+    read_line_len = read_line_len + 1 ;
+    // if we wrote a terminator, exit
+    if( c == 0 ){
+      return;
+    }
+  }
+  // this is only reached if the line was too long
+  // read + write back to only write one byte
+  ptr = read_line_ptr ;
+  wide_ptr_read ();
+  // 0xFF00
+  ptr_val = ptr_val & 65280 ;
+  wide_ptr_write ();
+  read_line_len = read_line_len + 1 ;
+  // read until end of line if the line was too long
+  while( c != 10 ){
+    read_char ();
+  }
 }
 
 
