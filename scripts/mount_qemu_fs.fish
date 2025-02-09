@@ -1,3 +1,7 @@
 #!/usr/bin/env fish
-losetup --partscan /dev/loop0 qemu_img
-mount --mkdir --read-write /dev/loop0p1 /mnt/qemu
+set lodev (losetup --partscan --direct-io=on --nooverlap --show --find qemu_img)
+if test $status -eq 0
+  mount --mkdir --read-write (string join '' $lodev "p1") /mnt/qemu -o sync,umask=0000
+else
+  echo "failed to set up loop device $lodev"
+end
