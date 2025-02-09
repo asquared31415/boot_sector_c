@@ -79,11 +79,14 @@ the interrupt handler properly handles saving and restoring cs, ds, and es
     *** returns: <none>
 
 ** read_line (int 0x41 ax = 4)
-    reads a line of input from the serial input into a buffer.
-    the line will have a `0x0A` newline and is null terminated.
-    this null termination is counted in the maximum length and buffer size.
+    reads a line of input from the serial input into a buffer with a specified length.
+    the line will always be null terminated, even if the full line would not fit.
+    in this case, the line will be truncated such that it and the terminator fit into
+    the buffer, and the rest of the line will be discarded.
+    the line will not have a CR or LF at the end.
+    the null terminator is counted in the length argument and return value.
     *** args:
         - bx:cx: segment and pointer of the buffer to fill
         - dx: the maximum number of bytes to fill
     *** returns:
-        - ax: the number of bytes read
+        - ax: the number of bytes read, including the null terminator

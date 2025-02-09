@@ -26,9 +26,10 @@
 0x1_0000-0x1_FFFF: text editor text buffer
 
 // 16-to-64 bit compiler:
-0x0_0000-0x0_04FF: BIOS (DO NOT USE)
-0x0_0500-0x0_0FFF: stack pointer
-0x0_1000-0x0_5FFF: compiler program (DO NOT USE)
-0x0_6000-0x0_FFFF: <unallocated>
-0x1_0000-0x6_FFFF: <unallocated>
+0x0_0000-0x0_FFFF: fs_impl data
+<TODO: probably reserve through 1_FFFF ?>
+0x3_0000-0x3_0FFF: <unallocated>
+0x3_1000-0x3_5FFF: program code
+0x3_FFF0-0x3_FFFF: fs metadata buffer
+0x4_0000-0x6_FFFF: <unallocated>
 0x7_0000-0x7_FFFF: input source code
