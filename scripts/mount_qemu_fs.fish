@@ -1,5 +1,5 @@
 #!/usr/bin/env fish
-set lodev (losetup --partscan --direct-io=on --nooverlap --show --find qemu_img)
+set lodev (losetup --partscan --direct-io=on --nooverlap --show --find qemu.img)
 if test $status -eq 0
   mount --mkdir --read-write (string join '' $lodev "p1") /mnt/qemu -o sync,umask=0000
 else

@@ -1,6 +1,6 @@
 #!/usr/bin/env fish
 if scripts/build.fish
-    nohup qemu-system-i386 -drive format=raw,file=qemu_img -serial unix:qemu_socket,server,nowait -D out/qemu.log -s &> /dev/null &
+    nohup qemu-system-i386 -drive format=raw,file=qemu.img -serial unix:qemu_socket,server,nowait -D out/qemu.log -s &> /dev/null &
 
     # Give time for qemu to start and create the socket
     sleep 1

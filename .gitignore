@@ -1,15 +1,8 @@
 .vscode/
 
-INTERESTED.txt
-
 # binary artifacts
 out/
-mnt/
-qemu_img
-
-# logs
-qemu.log
-nohup.out
+qemu.img
 
 # transfer things
 qemu_socket
